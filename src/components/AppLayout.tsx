@@ -1,4 +1,5 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import brandLogo from '../../LoDi-LoDi-Capital_letter_L_featu...-Apr_25_2026_17-01-r2j3avfe-removebg-preview.png.svg'
 
 const navItems = [
   { label: 'Prompt', to: '/assistant' },
@@ -6,29 +7,18 @@ const navItems = [
   { label: 'Termeni', to: '/' },
 ]
 
-function BrandIcon() {
-  return (
-    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <path
-        d="M11.8 4.4 4.4 11.8a4 4 0 0 0 0 5.7l7.1 7.1a4 4 0 0 0 5.6 0l7.5-7.5a4 4 0 0 0 0-5.6l-7.1-7.1a4 4 0 0 0-5.7 0Z"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinejoin="round"
-      />
-      <circle cx="24.8" cy="24.8" r="3" fill="currentColor" />
-    </svg>
-  )
-}
-
 function AppLayout() {
+  const location = useLocation()
+  const isHomeRoute = location.pathname === '/'
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isHomeRoute ? ' app-shell--home' : ''}`}>
       <header className="navbar">
         <Link to="/" className="brand">
           <span className="brand-mark">
-            <BrandIcon />
+            <img src={brandLogo} alt="" aria-hidden="true" />
           </span>
-          <strong>LEXGRAPH</strong>
+          <strong className="brand-wordmark">LexAi</strong>
         </Link>
 
         <nav aria-label="Main navigation">
