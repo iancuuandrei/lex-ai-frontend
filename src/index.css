@@ -1,8 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
 :root {
   --text-primary: #fff5ec;
   --text-soft: rgba(255, 239, 227, 0.78);
   --sans: 'Manrope', 'Avenir Next', 'Segoe UI', 'Helvetica Neue', sans-serif;
   --heading: 'Space Grotesk', 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
+  --canvas-font: 'Inter', 'SF Pro Display', 'Segoe UI', sans-serif;
 
   font: 16px/1.5 var(--sans);
   color: var(--text-primary);
@@ -22,6 +26,7 @@ body,
 #root {
   width: 100%;
   height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
