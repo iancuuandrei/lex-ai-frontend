@@ -1,9 +1,10 @@
 import { Link, Outlet } from 'react-router-dom'
 
 const navItems = [
-  { label: 'Prompt', to: '/assistant' },
-  { label: 'Confidentialitate', to: '/library' },
-  { label: 'Termeni', to: '/' },
+  { label: 'Overview', to: '/' },
+  { label: 'Assistant', to: '/assistant' },
+  { label: 'Library', to: '/library' },
+  { label: 'Graph', to: '/graph' },
 ]
 
 function BrandIcon() {
