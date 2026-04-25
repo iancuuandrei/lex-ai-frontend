@@ -76,13 +76,12 @@ function HomePage() {
       <div className="hero-stack">
         <div className="hero-copy">
           <h1>
-            Intrebi firesc,
+            Descrii cazul,
             <br />
-            verifici in drept.
+            vezi baza legala.
           </h1>
           <p>
-            Descrii speta in limbaj natural, iar LexGraph iti intoarce un
-            raspuns clar, legat de articolele si conexiunile care il sustin.
+            LexGraph iti arata raspunsul si articolele care il sustin.
           </p>
         </div>
 
