@@ -28,6 +28,16 @@ function HomePage() {
   const [ideaIndex, setIdeaIndex] = useState(0)
   const [typedIdea, setTypedIdea] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isIntroVisible, setIsIntroVisible] = useState(false)
+  const [promptValue, setPromptValue] = useState('')
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setIsIntroVisible(true)
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [])
 
   useEffect(() => {
     const currentIdea = promptIdeas[ideaIndex]
@@ -60,7 +70,9 @@ function HomePage() {
   }, [ideaIndex, isDeleting, typedIdea])
 
   return (
-    <section className="page page-home">
+    <section
+      className={`page page-home${isIntroVisible ? ' page-home--intro-visible' : ''}`}
+    >
       <div className="hero-stack">
         <div className="hero-copy">
           <h1>
@@ -77,17 +89,29 @@ function HomePage() {
         <section className="prompt-card" aria-label="Prompt layout preview">
           <div className="prompt-card__frame">
             <div className="prompt-card__editor">
-              <span className="prompt-card__placeholder">
-                <span className="prompt-card__placeholder-prefix">
-                  {promptPrefix}
-                </span>
-                <span className="prompt-card__placeholder-text">
-                  {typedIdea}
-                </span>
-                <span className="prompt-card__cursor" aria-hidden="true">
-                  |
-                </span>
-              </span>
+              <label className="prompt-card__input-wrap">
+                <span className="sr-only">Prompt</span>
+                <textarea
+                  className="prompt-card__input"
+                  value={promptValue}
+                  onChange={(event) => setPromptValue(event.target.value)}
+                  rows={2}
+                  aria-label="Prompt"
+                />
+                {promptValue.length === 0 ? (
+                  <span className="prompt-card__placeholder">
+                    <span className="prompt-card__placeholder-prefix">
+                      {promptPrefix}
+                    </span>
+                    <span className="prompt-card__placeholder-text">
+                      {typedIdea}
+                    </span>
+                    <span className="prompt-card__cursor" aria-hidden="true">
+                      |
+                    </span>
+                  </span>
+                ) : null}
+              </label>
             </div>
 
             <div className="prompt-card__toolbar">

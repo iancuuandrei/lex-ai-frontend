@@ -1,10 +1,9 @@
 import { Link, Outlet } from 'react-router-dom'
 
 const navItems = [
-  { label: 'Overview', to: '/' },
-  { label: 'Assistant', to: '/assistant' },
-  { label: 'Library', to: '/library' },
-  { label: 'Graph', to: '/graph' },
+  { label: 'Prompt', to: '/assistant' },
+  { label: 'Confidentialitate', to: '/library' },
+  { label: 'Termeni', to: '/' },
 ]
 
 function BrandIcon() {
@@ -17,22 +16,6 @@ function BrandIcon() {
         strokeLinejoin="round"
       />
       <circle cx="24.8" cy="24.8" r="3" fill="currentColor" />
-    </svg>
-  )
-}
-
-function CartIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 6h1.6l1.8 8.2a1 1 0 0 0 1 .8h7.3a1 1 0 0 0 1-.7L20 8H8.1"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="10.3" cy="18.4" r="1.2" fill="currentColor" />
-      <circle cx="17.2" cy="18.4" r="1.2" fill="currentColor" />
     </svg>
   )
 }
@@ -61,11 +44,11 @@ function AppLayout() {
         </nav>
 
         <div className="nav-actions" aria-label="Header actions">
-          <button className="nav-icon-button" type="button" aria-label="Open cart">
-            <CartIcon />
+          <button className="nav-cta-button" type="button">
+            Log in
           </button>
-          <button className="nav-icon-button nav-icon-button-solid" type="button" aria-label="Open profile">
-            <span className="nav-icon-core" />
+          <button className="nav-cta-button nav-cta-button-primary" type="button">
+            Get started
           </button>
         </div>
       </header>
