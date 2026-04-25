@@ -644,10 +644,10 @@
 }
 
 .graph-canvas {
-  min-height: 480px;
+  min-height: 600px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   padding: 0;
   overflow: hidden;
   background:
