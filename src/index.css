@@ -1,26 +1,12 @@
 :root {
-  --bg: #f5efe4;
-  --surface: rgba(255, 251, 245, 0.88);
-  --surface-strong: #fff8ee;
-  --border: rgba(18, 33, 51, 0.1);
-  --text: #425466;
-  --text-soft: #5d6d7c;
-  --text-strong: #122133;
-  --accent: #285e54;
-  --accent-strong: #163c4e;
-  --shadow: 0 30px 70px -50px rgba(18, 33, 51, 0.55);
+  --text-primary: #fff5ec;
+  --text-soft: rgba(255, 239, 227, 0.78);
+  --sans: 'Manrope', 'Avenir Next', 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --heading: 'Space Grotesk', 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
 
-  --sans:
-    'Manrope', 'Avenir Next', 'Segoe UI', 'Helvetica Neue', sans-serif;
-  --heading:
-    'Space Grotesk', 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
-  --mono: 'IBM Plex Mono', 'SFMono-Regular', 'Consolas', monospace;
-
-  font: 16px/1.55 var(--sans);
-  color: var(--text);
-  background:
-    radial-gradient(circle at top left, rgba(40, 94, 84, 0.2), transparent 28%),
-    linear-gradient(180deg, #fbf8f2 0%, #f1e7d9 100%);
+  font: 16px/1.5 var(--sans);
+  color: var(--text-primary);
+  background: #5f5369;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -31,13 +17,16 @@
   box-sizing: border-box;
 }
 
-html {
-  min-height: 100%;
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
 }
 
 body {
   margin: 0;
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 body,
@@ -49,30 +38,41 @@ select {
   font: inherit;
 }
 
+button,
+input,
+textarea,
+select {
+  border: 0;
+  outline: 0;
+}
+
+button {
+  cursor: pointer;
+}
+
 a {
   color: inherit;
 }
 
 #root {
-  width: min(1180px, 100%);
-  margin: 0 auto;
+  isolation: isolate;
 }
 
 h1,
 h2 {
   margin: 0;
-  color: var(--text-strong);
+  color: var(--text-primary);
   font-family: var(--heading);
-  line-height: 1.05;
+  line-height: 1;
 }
 
 h1 {
-  font-size: clamp(2.7rem, 7vw, 4.8rem);
-  letter-spacing: -0.05em;
+  font-size: clamp(2.7rem, 7vw, 5rem);
+  letter-spacing: -0.06em;
 }
 
 h2 {
-  font-size: clamp(1.35rem, 3vw, 1.7rem);
+  font-size: clamp(1.35rem, 3vw, 1.8rem);
   letter-spacing: -0.03em;
 }
 
