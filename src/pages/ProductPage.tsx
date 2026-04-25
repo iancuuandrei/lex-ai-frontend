@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState, type CSSProperties } from 'react'
 import PromptComposer from '../components/PromptComposer'
 import ProductBackgroundCanvas from '../components/product/ProductBackgroundCanvas'
 import ProductKnowledgeGraph, {
@@ -168,10 +168,20 @@ function ProductToolbarIcon({ kind }: { kind: 'graph' | 'list' | 'filter' | 'sha
 }
 
 function ProductPage() {
+  const showGraph = false
+  const assistantMinWidth = 320
+  const assistantMaxWidth = 720
+  const assistantMobileBreakpoint = 760
+  const assistantDefaultWidth = 420
+  const assistantRef = useRef<HTMLElement | null>(null)
+  const assistantResizeStartRef = useRef<{ x: number; width: number } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [promptValue, setPromptValue] = useState('')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [assistantWidth, setAssistantWidth] = useState(assistantDefaultWidth)
+  const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false)
+  const [isResizingAssistant, setIsResizingAssistant] = useState(false)
   const [activeFilters, setActiveFilters] = useState<Record<ProductNodeCategory, boolean>>({
     case: true,
     statute: true,
@@ -198,6 +208,66 @@ function ProductPage() {
       setSelectedNodeId(null)
     }
   }, [selectedNodeId, visibleNodeIds])
+
+  useEffect(() => {
+    function getMaxAllowedWidth() {
+      return Math.max(assistantMinWidth, Math.min(assistantMaxWidth, window.innerWidth - 180))
+    }
+
+    function syncAssistantWidth() {
+      if (window.innerWidth <= assistantMobileBreakpoint) {
+        setIsAssistantCollapsed(false)
+        return
+      }
+
+      setAssistantWidth((current) => Math.min(current, getMaxAllowedWidth()))
+    }
+
+    syncAssistantWidth()
+    window.addEventListener('resize', syncAssistantWidth)
+
+    return () => {
+      window.removeEventListener('resize', syncAssistantWidth)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isResizingAssistant) {
+      return
+    }
+
+    function getMaxAllowedWidth() {
+      return Math.max(assistantMinWidth, Math.min(assistantMaxWidth, window.innerWidth - 180))
+    }
+
+    function handlePointerMove(event: MouseEvent) {
+      if (!assistantRef.current || !assistantResizeStartRef.current || window.innerWidth <= assistantMobileBreakpoint) {
+        return
+      }
+
+      const deltaX = event.clientX - assistantResizeStartRef.current.x
+      const nextWidth = assistantResizeStartRef.current.width + deltaX
+      const clampedWidth = Math.min(getMaxAllowedWidth(), Math.max(assistantMinWidth, nextWidth))
+      setAssistantWidth(clampedWidth)
+    }
+
+    function handlePointerUp() {
+      assistantResizeStartRef.current = null
+      setIsResizingAssistant(false)
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', handlePointerMove)
+    window.addEventListener('mouseup', handlePointerUp)
+
+    return () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', handlePointerMove)
+      window.removeEventListener('mouseup', handlePointerUp)
+    }
+  }, [isResizingAssistant])
 
   function toggleFilter(category: ProductNodeCategory) {
     setActiveFilters((current) => ({
@@ -228,69 +298,35 @@ function ProductPage() {
 
   const selectedNode = selectedNodeId ? visibleNodeIndex.get(selectedNodeId) : null
   const zoomPercent = Math.round(zoom * 100)
+  const workspaceStyle = {
+    '--product-assistant-width': isAssistantCollapsed ? '0px' : `${assistantWidth}px`,
+  } as CSSProperties
+  const workspaceClassName = [
+    'product-workspace',
+    showGraph ? '' : 'product-workspace--graph-hidden',
+    isAssistantCollapsed ? 'product-workspace--assistant-collapsed' : '',
+  ].filter(Boolean).join(' ')
 
   return (
     <section className="page page-product-studio">
       <ProductBackgroundCanvas />
 
-      <header className="product-topbar">
-        <div className="product-brand">
-          <span className="product-brand-mark" aria-hidden="true">
-            <span />
-            <span />
-          </span>
-          <strong>LexiGraph</strong>
-        </div>
-
-        <button type="button" className="product-workspace-pill">
-          <span>Workspace</span>
-          <strong>Employment Law Research</strong>
-          <ProductToolbarIcon kind="chevron" />
-        </button>
-
-        <label className="product-topbar-search">
-          <ProductToolbarIcon kind="search" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search nodes, cases, statutes, concepts..."
-            aria-label="Search product graph"
-          />
-          <span>⌘K</span>
-        </label>
-
-        <div className="product-topbar-actions">
-          <button type="button" className="product-tab product-tab--active">
-            <ProductToolbarIcon kind="graph" />
-            Graph
-          </button>
-          <button type="button" className="product-tab">
-            <ProductToolbarIcon kind="list" />
-            List
-          </button>
-          <button type="button" className="product-tab">
-            <ProductToolbarIcon kind="filter" />
-            Filters
-          </button>
-          <button type="button" className="product-toolbar-button">
-            <ProductToolbarIcon kind="share" />
-            Share
-          </button>
-          <button type="button" className="product-toolbar-button product-toolbar-button--primary">
-            Save view
-            <ProductToolbarIcon kind="chevron" />
-          </button>
-          <div className="product-avatar" aria-hidden="true">DS</div>
-        </div>
-      </header>
-
-      <div className="product-workspace">
+      <div className={workspaceClassName} style={workspaceStyle}>
         <nav className="product-rail" aria-label="Workspace sections">
-          <button type="button" className="product-rail-button">
+          <button
+            type="button"
+            className={`product-rail-button${!isAssistantCollapsed ? ' product-rail-button--active' : ''}`}
+            aria-pressed={!isAssistantCollapsed}
+            onClick={() => {
+              setIsAssistantCollapsed((current) => !current)
+            }}
+          >
             <ProductToolbarIcon kind="message" />
           </button>
-          <button type="button" className="product-rail-button product-rail-button--active">
+          <button
+            type="button"
+            className={`product-rail-button${isAssistantCollapsed ? ' product-rail-button--active' : ''}`}
+          >
             <ProductToolbarIcon kind="graph" />
           </button>
           <button type="button" className="product-rail-button">
@@ -310,7 +346,27 @@ function ProductPage() {
           </button>
         </nav>
 
-        <aside className="product-assistant">
+        <aside
+          ref={assistantRef}
+          className={`product-assistant${isAssistantCollapsed ? ' product-assistant--collapsed' : ''}`}
+          aria-hidden={isAssistantCollapsed}
+        >
+          <button
+            type="button"
+            className={`product-assistant-resize-handle${isResizingAssistant ? ' is-active' : ''}`}
+            aria-label="Resize assistant panel"
+            onMouseDown={(event) => {
+              if (window.innerWidth > assistantMobileBreakpoint && assistantRef.current) {
+                assistantResizeStartRef.current = {
+                  x: event.clientX,
+                  width: assistantRef.current.getBoundingClientRect().width,
+                }
+                setIsAssistantCollapsed(false)
+                setIsResizingAssistant(true)
+              }
+            }}
+          />
+
           <div className="product-assistant-card">
             <div className="product-assistant-header">
               <div className="product-assistant-title">
@@ -350,118 +406,122 @@ function ProductPage() {
           </div>
         </aside>
 
-        <section className="product-canvas">
-          <div className="product-canvas-stage">
-            <ProductKnowledgeGraph
-              nodes={visibleNodes}
-              edges={visibleEdges}
-              selectedNodeId={selectedNodeId}
-              highlightedNodeIds={matchingNodeIds}
-              zoom={zoom}
-              onNodeClick={(nodeId) => {
-                setSelectedNodeId((current) => (current === nodeId ? null : nodeId))
-              }}
-            />
+        {!showGraph ? <div className="product-workspace-spacer" aria-hidden="true" /> : null}
 
-            <article className="product-graph-panel">
-              <div className="product-graph-panel-heading">
-                <div className="product-graph-panel-icon">
-                  <ProductToolbarIcon kind="graph" />
-                </div>
-                <div>
-                  <h2>Legal Knowledge Graph</h2>
-                  <p>Explore legal concepts, cases, statutes and their relationships.</p>
-                </div>
-              </div>
-
-              <dl className="product-graph-stats">
-                <div>
-                  <dt>Nodes</dt>
-                  <dd>248</dd>
-                </div>
-                <div>
-                  <dt>Edges</dt>
-                  <dd>612</dd>
-                </div>
-                <div>
-                  <dt>Sources</dt>
-                  <dd>156</dd>
-                </div>
-                <div>
-                  <dt>Jurisdictions</dt>
-                  <dd>2</dd>
-                </div>
-              </dl>
-
-              <div className="product-graph-filter-header">
-                <strong>Filters</strong>
-                <button type="button" onClick={resetView}>Clear all</button>
-              </div>
-
-              <div className="product-graph-filter-list">
-                {productFilters.map((filter) => (
-                  <label key={filter.key} className="product-graph-filter-row">
-                    <span>{filter.label}</span>
-                    <input
-                      type="checkbox"
-                      checked={activeFilters[filter.key]}
-                      onChange={() => toggleFilter(filter.key)}
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div className="product-graph-jurisdiction">
-                <span>Jurisdiction:</span>
-                <strong>Canada</strong>
-                <span className="product-graph-jurisdiction-dot" />
-              </div>
-
-              <div className="product-graph-focus">
-                {selectedNode ? (
-                  <>
-                    <strong>{selectedNode.label.join(' ')}</strong>
-                    <span>{selectedNode.category}</span>
-                  </>
-                ) : (
-                  <>
-                    <strong>Focus any node</strong>
-                    <span>Inspect its direct context without leaving the workspace.</span>
-                  </>
-                )}
-              </div>
-            </article>
-
-            <div className="product-graph-controls">
-              <button type="button" className="product-graph-control">
-                <span>✋</span>
-              </button>
-              <button type="button" className="product-graph-control">
-                <span>⌖</span>
-              </button>
-              <button type="button" className="product-graph-control">
-                <span>⤢</span>
-              </button>
-              <button type="button" className="product-graph-control" onClick={zoomIn}>
-                <ProductToolbarIcon kind="plus" />
-              </button>
-              <div className="product-graph-zoom-readout">{zoomPercent}%</div>
-              <button type="button" className="product-graph-control" onClick={zoomOut}>
-                <span>−</span>
-              </button>
-            </div>
-
-            <div className="product-minimap">
+        {showGraph ? (
+          <section className="product-canvas">
+            <div className="product-canvas-stage">
               <ProductKnowledgeGraph
                 nodes={visibleNodes}
                 edges={visibleEdges}
                 selectedNodeId={selectedNodeId}
                 highlightedNodeIds={matchingNodeIds}
-                mini
+                zoom={zoom}
+                onNodeClick={(nodeId) => {
+                  setSelectedNodeId((current) => (current === nodeId ? null : nodeId))
+                }}
               />
+
+              <article className="product-graph-panel">
+                <div className="product-graph-panel-heading">
+                  <div className="product-graph-panel-icon">
+                    <ProductToolbarIcon kind="graph" />
+                  </div>
+                  <div>
+                    <h2>Legal Knowledge Graph</h2>
+                    <p>Explore legal concepts, cases, statutes and their relationships.</p>
+                  </div>
+                </div>
+
+                <dl className="product-graph-stats">
+                  <div>
+                    <dt>Nodes</dt>
+                    <dd>248</dd>
+                  </div>
+                  <div>
+                    <dt>Edges</dt>
+                    <dd>612</dd>
+                  </div>
+                  <div>
+                    <dt>Sources</dt>
+                    <dd>156</dd>
+                  </div>
+                  <div>
+                    <dt>Jurisdictions</dt>
+                    <dd>2</dd>
+                  </div>
+                </dl>
+
+                <div className="product-graph-filter-header">
+                  <strong>Filters</strong>
+                  <button type="button" onClick={resetView}>Clear all</button>
+                </div>
+
+                <div className="product-graph-filter-list">
+                  {productFilters.map((filter) => (
+                    <label key={filter.key} className="product-graph-filter-row">
+                      <span>{filter.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={activeFilters[filter.key]}
+                        onChange={() => toggleFilter(filter.key)}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="product-graph-jurisdiction">
+                  <span>Jurisdiction:</span>
+                  <strong>Canada</strong>
+                  <span className="product-graph-jurisdiction-dot" />
+                </div>
+
+                <div className="product-graph-focus">
+                  {selectedNode ? (
+                    <>
+                      <strong>{selectedNode.label.join(' ')}</strong>
+                      <span>{selectedNode.category}</span>
+                    </>
+                  ) : (
+                    <>
+                      <strong>Focus any node</strong>
+                      <span>Inspect its direct context without leaving the workspace.</span>
+                    </>
+                  )}
+                </div>
+              </article>
+
+              <div className="product-graph-controls">
+                <button type="button" className="product-graph-control">
+                  <span>✋</span>
+                </button>
+                <button type="button" className="product-graph-control">
+                  <span>⌖</span>
+                </button>
+                <button type="button" className="product-graph-control">
+                  <span>⤢</span>
+                </button>
+                <button type="button" className="product-graph-control" onClick={zoomIn}>
+                  <ProductToolbarIcon kind="plus" />
+                </button>
+                <div className="product-graph-zoom-readout">{zoomPercent}%</div>
+                <button type="button" className="product-graph-control" onClick={zoomOut}>
+                  <span>−</span>
+                </button>
+              </div>
+
+              <div className="product-minimap">
+                <ProductKnowledgeGraph
+                  nodes={visibleNodes}
+                  edges={visibleEdges}
+                  selectedNodeId={selectedNodeId}
+                  highlightedNodeIds={matchingNodeIds}
+                  mini
+                />
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
       </div>
     </section>
   )
