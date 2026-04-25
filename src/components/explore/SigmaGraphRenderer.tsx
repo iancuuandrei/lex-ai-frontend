@@ -1,107 +1,121 @@
-import { useEffect, useRef } from 'react'
-import Sigma from 'sigma'
-import type { GraphNode, GraphEdge } from '../../types/graph'
-import { buildGraphologyGraph } from '../../lib/graph/graphology-builders'
+import { useEffect, useRef } from 'react';
+import Graph from 'graphology';
+import Sigma from 'sigma';
+import type { NodeDisplayData, EdgeDisplayData } from 'sigma/types';
 
 interface Props {
-  nodes: GraphNode[]
-  edges: GraphEdge[]
-  onNodeClick?: (nodeId: string) => void
-  onStageClick?: () => void
+  graph: Graph;
+  hiddenDomains: string[];
+  selectedNodeId: string | null;
+  onNodeSelect: (id: string | null) => void;
 }
 
-export default function SigmaGraphRenderer({ nodes, edges, onNodeClick, onStageClick }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const onNodeClickRef = useRef(onNodeClick)
-  const onStageClickRef = useRef(onStageClick)
+export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeId, onNodeSelect }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sigmaRef = useRef<Sigma | null>(null);
+  const hoveredNodeRef = useRef<string | null>(null);
+  const hiddenDomainsRef = useRef<string[]>(hiddenDomains);
+  const selectedNodeRef = useRef<string | null>(selectedNodeId);
 
   useEffect(() => {
-    onNodeClickRef.current = onNodeClick
-  }, [onNodeClick])
-
-  useEffect(() => {
-    onStageClickRef.current = onStageClick
-  }, [onStageClick])
-
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    const graph = buildGraphologyGraph(nodes, edges)
-
-    let hoveredNode: string | null = null
-    let selectedNode: string | null = null
+    if (!containerRef.current) return;
 
     const sigma = new Sigma(graph, containerRef.current, {
-      renderEdgeLabels: false,
-      defaultEdgeColor: '#334155',
-      defaultNodeColor: '#475569',
-      nodeReducer(node, data) {
-        const res = { ...data }
-        const activeNode = hoveredNode ?? selectedNode
-        if (activeNode && activeNode !== node && !graph.neighbors(activeNode).includes(node)) {
-          res.color = '#1e293b'
-          res.size = (data.size as number) * 0.6
+      nodeReducer: (node: string, data: Record<string, unknown>): Partial<NodeDisplayData> => {
+        const domain = data.domain as string | undefined;
+        if (domain && hiddenDomainsRef.current.includes(domain)) {
+          return { ...data, hidden: true } as Partial<NodeDisplayData>;
         }
-        if (selectedNode === node) {
-          res.color = '#f1f5f9'
-          res.size = (data.size as number) * 1.3
+
+        const hovered = hoveredNodeRef.current;
+        const selected = selectedNodeRef.current;
+
+        if (hovered !== null || selected !== null) {
+          const isActive = node === hovered || node === selected;
+          if (!isActive) {
+            return { ...data, color: '#555', zIndex: 0 } as Partial<NodeDisplayData>;
+          }
+          return { ...data, highlighted: true, zIndex: 1 } as Partial<NodeDisplayData>;
         }
-        if (hoveredNode === node) {
-          res.size = (data.size as number) * 1.2
-        }
-        return res
+
+        return data as Partial<NodeDisplayData>;
       },
-      edgeReducer(edge, data) {
-        const res = { ...data }
-        const activeNode = hoveredNode ?? selectedNode
-        if (activeNode) {
-          const src = graph.source(edge)
-          const tgt = graph.target(edge)
-          if (src !== activeNode && tgt !== activeNode) {
-            res.color = '#0f172a'
-            res.size = 0.4
-          } else {
-            res.color = '#64748b'
-            res.size = 2
+
+      edgeReducer: (edge: string, data: Record<string, unknown>): Partial<EdgeDisplayData> => {
+        const source = graph.source(edge);
+        const target = graph.target(edge);
+        const srcAttrs = graph.getNodeAttributes(source);
+        const tgtAttrs = graph.getNodeAttributes(target);
+
+        const srcHidden = srcAttrs.domain && hiddenDomainsRef.current.includes(srcAttrs.domain as string);
+        const tgtHidden = tgtAttrs.domain && hiddenDomainsRef.current.includes(tgtAttrs.domain as string);
+
+        if (srcHidden || tgtHidden) {
+          return { ...data, hidden: true } as Partial<EdgeDisplayData>;
+        }
+
+        const hovered = hoveredNodeRef.current;
+        const selected = selectedNodeRef.current;
+
+        if (hovered !== null || selected !== null) {
+          const isActive =
+            source === hovered || target === hovered || source === selected || target === selected;
+          if (!isActive) {
+            return { ...data, hidden: true } as Partial<EdgeDisplayData>;
           }
         }
-        return res
+
+        return data as Partial<EdgeDisplayData>;
       },
-    })
+
+      renderEdgeLabels: false,
+    });
 
     sigma.on('enterNode', ({ node }) => {
-      hoveredNode = node
-      containerRef.current!.style.cursor = 'pointer'
-      sigma.refresh()
-    })
+      hoveredNodeRef.current = node;
+      containerRef.current!.style.cursor = 'pointer';
+      sigma.refresh();
+    });
 
     sigma.on('leaveNode', () => {
-      hoveredNode = null
-      containerRef.current!.style.cursor = 'default'
-      sigma.refresh()
-    })
+      hoveredNodeRef.current = null;
+      containerRef.current!.style.cursor = 'default';
+      sigma.refresh();
+    });
 
     sigma.on('clickNode', ({ node }) => {
-      selectedNode = selectedNode === node ? null : node
-      onNodeClickRef.current?.(node)
-      sigma.refresh()
-    })
+      onNodeSelect(selectedNodeRef.current === node ? null : node);
+    });
 
     sigma.on('clickStage', () => {
-      selectedNode = null
-      onStageClickRef.current?.()
-      sigma.refresh()
-    })
+      onNodeSelect(null);
+    });
 
+    sigmaRef.current = sigma;
     return () => {
-      sigma.kill()
-    }
-  }, [nodes, edges])
+      sigma.kill();
+      sigmaRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
 
-  return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%', minHeight: '600px' }}
-    />
-  )
+  useEffect(() => {
+    hiddenDomainsRef.current = hiddenDomains;
+    sigmaRef.current?.refresh();
+  }, [hiddenDomains]);
+
+  useEffect(() => {
+    selectedNodeRef.current = selectedNodeId;
+    const sigma = sigmaRef.current;
+    if (!sigma) return;
+
+    if (selectedNodeId && graph.hasNode(selectedNodeId)) {
+      const { x, y } = graph.getNodeAttributes(selectedNodeId) as { x: number; y: number };
+      sigma.getCamera().animate({ x, y, ratio: 0.3 }, { duration: 500 });
+    }
+
+    sigma.refresh();
+  }, [selectedNodeId, graph]);
+
+  return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }
