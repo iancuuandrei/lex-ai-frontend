@@ -10,12 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@tailwindcss/vite": "^4.2.4",
+    "framer-motion": "^12.38.0",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.2",
-    "sigma": "^3.0.2"
+    "sigma": "^3.0.2",
+    "tailwindcss": "^4.2.4",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
