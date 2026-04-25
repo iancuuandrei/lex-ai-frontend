@@ -925,6 +925,70 @@
   cursor: pointer;
 }
 
+/* Domain filter badges in toolbar */
+.graph-domain-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.graph-domain-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--badge-color, var(--border));
+  background: transparent;
+  color: var(--text-soft);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  opacity: 0.5;
+}
+
+.graph-domain-badge--active {
+  background: color-mix(in srgb, var(--badge-color, var(--accent)) 15%, transparent);
+  color: var(--text-strong);
+  opacity: 1;
+}
+
+.graph-domain-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--badge-color, var(--accent));
+  flex-shrink: 0;
+}
+
+/* Node detail dl */
+.graph-node-detail {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font-size: 0.88rem;
+}
+
+.graph-node-detail dt {
+  color: var(--text-soft);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  align-self: center;
+}
+
+.graph-node-detail dd {
+  margin: 0;
+  color: var(--text-strong);
+  display: flex;
+  align-items: center;
+}
+
 @media (max-width: 900px) {
   .graph-workspace {
     grid-template-columns: 1fr;
