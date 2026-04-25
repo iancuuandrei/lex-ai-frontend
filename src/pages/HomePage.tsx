@@ -1,8 +1,20 @@
-function ChevronDownIcon() {
+import { useEffect, useState } from 'react'
+
+const promptPrefix = 'Intreaba-l pe LexAi despre '
+
+const promptIdeas = [
+  'concediere fara preaviz',
+  'mostenire fara testament',
+  'clauze dintr-un contract de chirie',
+  'contestarea unei amenzi rutiere',
+  'ore suplimentare neplatite',
+]
+
+function ArrowUpIcon() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="m5.5 7.5 4.5 5 4.5-5"
+        d="M12 18V6M7 11l5-5 5 5"
         stroke="currentColor"
         strokeWidth="1.9"
         strokeLinecap="round"
@@ -12,39 +24,41 @@ function ChevronDownIcon() {
   )
 }
 
-function MicrophoneIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d="M10 12.8a2.8 2.8 0 0 0 2.8-2.8V6.7A2.8 2.8 0 0 0 10 4a2.8 2.8 0 0 0-2.8 2.7V10A2.8 2.8 0 0 0 10 12.8Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-      />
-      <path
-        d="M5.8 9.8a4.2 4.2 0 0 0 8.4 0M10 14v2.2M7.4 16.2h5.2"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function ArrowUpIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d="M10 15V5M5.5 9.5 10 5l4.5 4.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function HomePage() {
+  const [ideaIndex, setIdeaIndex] = useState(0)
+  const [typedIdea, setTypedIdea] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  useEffect(() => {
+    const currentIdea = promptIdeas[ideaIndex]
+    const isComplete = typedIdea === currentIdea
+    const isEmpty = typedIdea.length === 0
+
+    const delay = isDeleting ? (isEmpty ? 240 : 36) : isComplete ? 1500 : 72
+
+    const timeoutId = window.setTimeout(() => {
+      if (!isDeleting) {
+        if (isComplete) {
+          setIsDeleting(true)
+          return
+        }
+
+        setTypedIdea(currentIdea.slice(0, typedIdea.length + 1))
+        return
+      }
+
+      if (!isEmpty) {
+        setTypedIdea(currentIdea.slice(0, typedIdea.length - 1))
+        return
+      }
+
+      setIsDeleting(false)
+      setIdeaIndex((currentIndex) => (currentIndex + 1) % promptIdeas.length)
+    }, delay)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [ideaIndex, isDeleting, typedIdea])
+
   return (
     <section className="page page-home">
       <div className="hero-stack">
@@ -64,38 +78,26 @@ function HomePage() {
           <div className="prompt-card__frame">
             <div className="prompt-card__editor">
               <span className="prompt-card__placeholder">
-                Descrie situatia juridica pe care vrei sa o intelegi sau sa o
-                verifici...
+                <span className="prompt-card__placeholder-prefix">
+                  {promptPrefix}
+                </span>
+                <span className="prompt-card__placeholder-text">
+                  {typedIdea}
+                </span>
+                <span className="prompt-card__cursor" aria-hidden="true">
+                  |
+                </span>
               </span>
             </div>
 
             <div className="prompt-card__toolbar">
               <button
-                className="prompt-icon-button prompt-icon-button-muted"
+                className="prompt-icon-button prompt-icon-button-primary"
                 type="button"
-                aria-label="Add item"
+                aria-label="Send prompt"
               >
-                <span>+</span>
+                <ArrowUpIcon />
               </button>
-
-              <div className="prompt-toolbar__actions">
-                <button className="prompt-mode-button" type="button">
-                  <span>Analizeaza</span>
-                  <ChevronDownIcon />
-                </button>
-
-                <button className="prompt-icon-button" type="button" aria-label="Use microphone">
-                  <MicrophoneIcon />
-                </button>
-
-                <button
-                  className="prompt-icon-button prompt-icon-button-primary"
-                  type="button"
-                  aria-label="Send prompt"
-                >
-                  <ArrowUpIcon />
-                </button>
-              </div>
             </div>
           </div>
         </section>
