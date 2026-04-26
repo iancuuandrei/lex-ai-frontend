@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import Graph from 'graphology';
 import Sigma from 'sigma';
+import forceAtlas2 from 'graphology-layout-forceatlas2';
 import type { NodeDisplayData, EdgeDisplayData } from 'sigma/types';
 
 interface Props {
@@ -92,15 +93,18 @@ export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeI
         const hovered = hoveredNodeRef.current;
         const selected = selectedNodeRef.current;
 
+        const baseEdgeSize = (data.size as number ?? 1.5) * 1.5;
+
         if (hovered !== null || selected !== null) {
           const isActive =
             source === hovered || target === hovered || source === selected || target === selected;
           if (!isActive) {
             return { ...data, hidden: true } as Partial<EdgeDisplayData>;
           }
+          return { ...data, color: '#8caeff', size: baseEdgeSize * 2, zIndex: 1 } as Partial<EdgeDisplayData>;
         }
 
-        return data as Partial<EdgeDisplayData>;
+        return { ...data, size: baseEdgeSize, color: 'rgba(150, 160, 180, 0.4)' } as Partial<EdgeDisplayData>;
       },
 
       renderEdgeLabels: false,
@@ -144,6 +148,29 @@ export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeI
       sigmaRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
+
+  // Perpetual Animation Effect
+  useEffect(() => {
+    let animationFrameId: number;
+    const settings = forceAtlas2.inferSettings(graph);
+    
+    const runLayout = () => {
+      forceAtlas2.assign(graph, {
+        iterations: 1,
+        settings: {
+          ...settings,
+          gravity: 0.15,
+          scalingRatio: 10,
+          barnesHutOptimize: true,
+          linLogMode: true,
+        }
+      });
+      animationFrameId = requestAnimationFrame(runLayout);
+    };
+
+    runLayout();
+    return () => cancelAnimationFrame(animationFrameId);
   }, [graph]);
 
   useEffect(() => {

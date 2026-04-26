@@ -1,4 +1,4 @@
-import type { QueryGraphResponse, QueryRequest, QueryResponse } from '../types/lexai'
+import type { QueryGraphResponse, QueryRequest, QueryResponse, Suggestion, LibraryItem } from '../types/lexai'
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8010').replace(/\/+$/, '')
@@ -65,4 +65,20 @@ export function getQuery(queryId: string): Promise<QueryResponse> {
 
 export function getQueryGraph(queryId: string): Promise<QueryGraphResponse> {
   return requestJson<QueryGraphResponse>(`/api/query/${encodeURIComponent(queryId)}/graph`)
+}
+
+export function getSuggestions(): Promise<Suggestion[]> {
+  return requestJson<Suggestion[]>('/api/suggestions')
+}
+
+export function getLibrary(): Promise<LibraryItem[]> {
+  return requestJson<LibraryItem[]>('/api/library')
+}
+
+export function getProductGraph(): Promise<{ nodes: any[]; edges: any[] }> {
+  return requestJson<{ nodes: any[]; edges: any[] }>('/api/product/graph')
+}
+
+export function getExploreGraph(): Promise<{ nodes: any[]; edges: string[][] }> {
+  return requestJson<{ nodes: any[]; edges: string[][] }>('/api/graph/explore')
 }

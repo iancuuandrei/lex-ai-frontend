@@ -258,7 +258,11 @@ function isEvidenceEdgeType(edgeType: string | undefined) {
 
 export interface ProductForceGraphHandle {
   focusRandomNode: () => void
+  focusNode: (nodeId: string) => void
+  focusOverview: () => void
   discoverNodes: () => void
+  highlightPointsGradually: (count: number, onProgress?: (current: number) => void) => Promise<GraphNode[]>
+  getGraphStats: () => { totalNodes: number; totalLinks: number; articles: number }
 }
 
 interface ProductForceGraphProps {
@@ -280,6 +284,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   const graphRef = useRef<ForceGraphMethods<RenderNode, RenderLink>>(undefined!)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
+  const [isGraphReady, setIsGraphReady] = useState(false)
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null)
   const [bannerVisible, setBannerVisible] = useState(false)
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set())
@@ -287,6 +292,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   const bannerTimerRef = useRef<number | null>(null)
   const globalScaleRef = useRef(1)
   const highlightStartRef = useRef(0)
+  const isHighlightingRef = useRef(false)
   const queryHighlightedNodeIds = queryGraph?.highlighted_node_ids
   const queryHighlightedEdgeIds = queryGraph?.highlighted_edge_ids
   const queryCitedUnitIds = queryGraph?.cited_unit_ids
@@ -327,7 +333,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     }
   }, [])
 
-  const flyToNode = useCallback((targetNode: GraphNode, customHighlights?: { nodes: Set<string>, links: Set<string> }, duration = 3000) => {
+  const flyToNode = useCallback((targetNode: GraphNode, customHighlights?: { nodes: Set<string>, links: Set<string> } | null, duration = 3000) => {
     return new Promise<void>((resolve) => {
       const graph = graphRef.current
       if (!graph || typeof targetNode.x !== 'number' || typeof targetNode.y !== 'number') {
@@ -372,9 +378,12 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         }
       }
 
-      if (customHighlights) {
-        setHighlightedNodeIds(customHighlights.nodes)
-        setHighlightedLinkIds(customHighlights.links)
+      if (customHighlights !== undefined) {
+        if (customHighlights) {
+          setHighlightedNodeIds(customHighlights.nodes)
+          setHighlightedLinkIds(customHighlights.links)
+        }
+        // if customHighlights is null, we explicitly skip highlight updates
       } else {
         setHighlightedNodeIds(new Set([targetNode.id]))
         setHighlightedLinkIds(new Set())
@@ -472,6 +481,26 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
       const target = pool[Math.floor(Math.random() * pool.length)]
       flyToNode(target)
     },
+    focusNode(nodeId: string) {
+      const node = (data.nodes as GraphNode[]).find((n) => n.id === nodeId)
+      if (node) {
+        void flyToNode(node, null, 1200)
+      }
+    },
+    focusOverview() {
+      const graph = graphRef.current
+      if (graph) {
+        graph.zoomToFit(1200, 80)
+      }
+    },
+    getGraphStats() {
+      const nodes = data.nodes as GraphNode[]
+      return {
+        totalNodes: nodes.length,
+        totalLinks: data.links.length,
+        articles: nodes.filter(n => n.category === 'article').length
+      }
+    },
     async discoverNodes() {
       const nodes = data.nodes as GraphNode[]
       if (nodes.length === 0) return
@@ -530,6 +559,64 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         // brief pause at each node
         await new Promise((resolve) => window.setTimeout(resolve, 800))
       }
+    },
+    async highlightPointsGradually(count: number, onProgress?: (current: number) => void) {
+      if (isHighlightingRef.current) return []
+      const nodes = data.nodes as GraphNode[]
+      if (nodes.length === 0) return []
+
+      isHighlightingRef.current = true
+      
+      try {
+        // Pick random points (prefer those with links if possible, or just random)
+        const points = nodes.filter(n => n.category === 'point')
+        const pool = points.length >= count ? points : nodes
+        const selected: GraphNode[] = []
+        const available = [...pool]
+        
+        for (let i = 0; i < count && available.length > 0; i++) {
+          const idx = Math.floor(Math.random() * available.length)
+          selected.push(available.splice(idx, 1)[0])
+        }
+
+        setHighlightedNodeIds(new Set())
+        setHighlightedLinkIds(new Set())
+        highlightStartRef.current = performance.now()
+
+        // 1. Zoom in slightly on top position (Discovery Phase)
+        const graph = graphRef.current
+        if (graph) {
+          graph.zoom(1.1, 1200)
+        }
+        await new Promise(resolve => setTimeout(resolve, 800))
+
+        // 2. Add nodes one by one
+        for (let i = 0; i < selected.length; i++) {
+          const node = selected[i]
+          
+          setHighlightedNodeIds(prev => {
+            const next = new Set(prev)
+            next.add(node.id)
+            return next
+          })
+
+          if (onProgress) onProgress(i + 1)
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
+
+        // 3. Final zoom out to show everything highlighted
+        if (graph) {
+          graph.zoomToFit(1500, 80)
+        }
+        
+        // Wait for the final zoom to actually finish before returning to the caller
+        // so that the next camera movement (like focusNode) doesn't conflict.
+        await new Promise(resolve => setTimeout(resolve, 1600))
+
+        return selected
+      } finally {
+        isHighlightingRef.current = false
+      }
     }
   }), [
     backendHighlightedEdgeIds,
@@ -565,38 +652,53 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
       | undefined
     linkForce?.distance((link) => {
       const target = (typeof link.target === 'object' ? link.target : null) as GraphNode | null
-      if (target?.category === 'query') return 180
-      if (target?.category === 'claim') return 120
-      if (target?.category === 'article') return 140
-      if (target?.category === 'paragraph') return 35
+      if (target?.category === 'query') return 320
+      if (target?.category === 'claim') return 240
+      if (target?.category === 'article') return 180
+      if (target?.category === 'paragraph') return 40
       if (target?.category === 'letter') return 25
-      if (target?.category === 'point') return 18
+      if (target?.category === 'point') return 15
       return 180
     })
 
     const chargeForce = graph.d3Force('charge') as
-      | { strength: (value: number) => unknown; distanceMax: (value: number) => unknown }
+      | { strength: (value: number | ((node: unknown) => number)) => unknown; distanceMax: (value: number) => unknown }
       | undefined
-    chargeForce?.strength(-150)
-    chargeForce?.distanceMax(800)
+      
+    chargeForce?.strength((node: unknown) => {
+      const cat = (node as GraphNode).category
+      if (cat === 'root' || cat === 'query') return -1200
+      if (cat === 'claim') return -800
+      if (cat === 'article') return -600
+      if (cat === 'paragraph') return -100
+      return -40
+    })
+    chargeForce?.distanceMax(1500)
 
     graph.d3Force('collide', forceCollide<GraphNode>()
       .radius((node) => {
         const cat = (node as GraphNode).category
-        return cat === 'root' || cat === 'query' ? 60
-          : cat === 'claim' ? 42
-          : cat === 'article' ? 35
-          : cat === 'paragraph' ? 18
-          : 10
+        return cat === 'root' || cat === 'query' ? 75
+          : cat === 'claim' ? 52
+          : cat === 'article' ? 45
+          : cat === 'paragraph' ? 25
+          : 15
       })
-      .strength(1)
-      .iterations(4)
+      .strength(0.8)
+      .iterations(2)
     )
 
     if (size.width > 0 && size.height > 0) {
       graph.d3ReheatSimulation()
     }
   }, [queryGraph, size.width, size.height])
+
+  useEffect(() => {
+    // Safety fallback: if the engine doesn't stop or tick for some reason, 
+    // hide the loader after a few seconds anyway so the user isn't stuck.
+    const timer = setTimeout(() => setIsGraphReady(true), 3500)
+    return () => clearTimeout(timer)
+  }, [])
 
   return (
     <div ref={containerRef} className="product-force-graph">
@@ -607,6 +709,9 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
           width={size.width}
           height={size.height}
           backgroundColor="rgba(0,0,0,0)"
+          linkCurvature={0.2}
+          linkDirectionalArrowLength={3.5}
+          linkDirectionalArrowRelPos={1}
           nodeRelSize={3}
           nodeVal={(node) => (node as GraphNode).val}
           nodeColor={(node) => categoryColor[(node as GraphNode).category]}
@@ -639,30 +744,30 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
 
             if (isHighlighted || isStrong || isEvidenceEdge) {
               const elapsed = (performance.now() - highlightStartRef.current) / 1000
-              const pulse = 0.6 + 0.4 * Math.sin(elapsed * 4)
-              const baseOpacity = isHighlighted || isStrong ? 0.85 : 0.56
+              const pulse = 0.7 + 0.3 * Math.sin(elapsed * 4)
+              const baseOpacity = isHighlighted || isStrong ? 0.95 : 0.72
               return `rgba(140, 180, 255, ${(baseOpacity * pulse).toFixed(2)})`
             }
 
-            // Strengthen as we zoom in: opacity goes from ~0.08 up to ~0.32
+            // Strengthen as we zoom in: opacity goes from ~0.16 up to ~0.45
             const opacity = edgeType === 'contains'
-              ? Math.min(0.22, 0.06 + (gs - 0.5) * 0.07)
-              : Math.min(0.36, 0.12 + (gs - 0.5) * 0.11)
-            return `rgba(220, 220, 235, ${opacity.toFixed(2)})`
+              ? Math.min(0.32, 0.12 + (gs - 0.5) * 0.12)
+              : Math.min(0.52, 0.22 + (gs - 0.5) * 0.18)
+            return `rgba(200, 210, 235, ${opacity.toFixed(2)})`
           }}
           linkWidth={(link) => {
             const sourceId = getEndpointId(link.source)
             const targetId = getEndpointId(link.target)
             const edgeType = (link as GraphLink).edgeType
             const isStrong = highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
-            if (isStrong || highlightedLinkIds.has(getLinkKey(link as GraphLink))) return 2.8
-            if (isEvidenceEdgeType(edgeType)) return 2
-            return edgeType === 'contains' ? 0.7 : 1.1
+            if (isStrong || highlightedLinkIds.has(getLinkKey(link as GraphLink))) return 3.5
+            if (isEvidenceEdgeType(edgeType)) return 2.6
+            return edgeType === 'contains' ? 1.2 : 1.8
           }}
-          cooldownTicks={800}
+          cooldownTicks={Infinity}
           warmupTicks={400}
-          d3AlphaDecay={0.045}
-          d3VelocityDecay={0.4}
+          d3AlphaDecay={0.002}
+          d3VelocityDecay={0.3}
           enableNodeDrag={false}
           nodeCanvasObjectMode={() => 'replace'}
           nodeCanvasObject={(node, ctx, globalScale) => {
@@ -795,7 +900,15 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
             }
           }}
           onNodeClick={(node) => flyToNode(node as GraphNode)}
+          onEngineStop={() => setIsGraphReady(true)}
         />
+      ) : null}
+
+      {!isGraphReady ? (
+        <div className="product-graph-loader">
+          <div className="product-graph-spinner" />
+          <span>Analysing legal connections...</span>
+        </div>
       ) : null}
 
       {hoveredNode && hoverPos ? (
