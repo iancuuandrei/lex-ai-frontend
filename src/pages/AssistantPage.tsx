@@ -1,10 +1,17 @@
-const suggestions = [
-  'Summarize this regulation',
-  'Compare two legal provisions',
-  'Generate a case brief',
-]
+import { useEffect, useState } from 'react'
+import { getSuggestions } from '../lib/api'
+import type { Suggestion } from '../types/lexai'
 
 function AssistantPage() {
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getSuggestions()
+      .then(setSuggestions)
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <section className="page">
       <div className="section-header">
@@ -19,11 +26,15 @@ function AssistantPage() {
       <div className="page-grid">
         <article className="info-card">
           <h2>Starter prompts</h2>
-          <ul className="simple-list">
-            {suggestions.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+          {loading ? (
+            <p>Loading suggestions...</p>
+          ) : (
+            <ul className="simple-list">
+              {suggestions.map((item) => (
+                <li key={item.id}>{item.text}</li>
+              ))}
+            </ul>
+          )}
         </article>
         <article className="info-card">
           <h2>Why this route exists</h2>

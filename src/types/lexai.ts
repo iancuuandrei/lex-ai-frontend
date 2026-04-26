@@ -132,3 +132,15 @@ export interface QueryGraphResponse {
   reasoning_path: Array<string | ReasoningPathItem>
   verifier_summary?: string | null
 }
+
+export interface Suggestion {
+  id: string
+  text: string
+}
+
+export interface LibraryItem {
+  id: string
+  title: string
+  description: string
+  type: string
+}

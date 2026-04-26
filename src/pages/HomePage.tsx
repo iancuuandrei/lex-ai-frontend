@@ -70,7 +70,6 @@ function HomePage() {
       <div className="landing-content">
         <div className="landing-left">
           <div className="landing-copy">
-            <span className="landing-badge">LexAI 2.0</span>
             <h1>The Legal Knowledge Graph</h1>
             <p>
               Describe your case. We map the entire legal framework, extract
