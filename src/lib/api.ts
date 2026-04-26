@@ -1,7 +1,7 @@
 import type { QueryGraphResponse, QueryRequest, QueryResponse } from '../types/lexai'
 
 export const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/+$/, '')
+  (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8010').replace(/\/+$/, '')
 
 async function readErrorMessage(response: Response): Promise<string> {
   const fallback = response.statusText || 'Request failed'
@@ -39,7 +39,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.body ? { 'Content-Type': 'application/json; charset=utf-8' } : {}),
       ...init?.headers,
     },
   })

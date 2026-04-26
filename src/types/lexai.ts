@@ -9,11 +9,16 @@ export interface QueryRequest {
 export interface AnswerPayload {
   short_answer?: string | null
   detailed_answer?: string | null
+  confidence?: number | null
+  not_legal_advice?: boolean | null
+  refusal_reason?: string | null
 }
 
 export interface Citation {
   id?: string | null
+  citation_id?: string | null
   unit_id?: string | null
+  legal_unit_id?: string | null
   evidence_unit_id?: string | null
   node_id?: string | null
   label?: string | null
@@ -23,8 +28,11 @@ export interface Citation {
   article?: string | number | null
   paragraph?: string | number | null
   excerpt?: string | null
+  quote?: string | null
   raw_text?: string | null
   url?: string | null
+  source_url?: string | null
+  verified?: boolean | null
   metadata?: Record<string, unknown> | null
 }
 
@@ -40,6 +48,21 @@ export interface EvidenceUnit {
   raw_text?: string | null
   score?: number | null
   metadata?: Record<string, unknown> | null
+  law_id?: string | null
+  law_title?: string | null
+  status?: string | null
+  hierarchy_path?: string[] | string | null
+  article_number?: string | number | null
+  paragraph_number?: string | number | null
+  letter_number?: string | number | null
+  point_number?: string | number | null
+  legal_domain?: string | null
+  source_url?: string | null
+  support_role?: string | null
+  retrieval_score?: number | null
+  rerank_score?: number | null
+  score_breakdown?: Record<string, unknown> | null
+  why_selected?: string | null
 }
 
 export type VerifierStatus =
@@ -58,6 +81,16 @@ export interface VerifierPayload {
   rationale?: string | null
   confidence?: number | null
   metadata?: Record<string, unknown> | null
+  groundedness_score?: number | null
+  claims_total?: number | null
+  claims_supported?: number | null
+  claims_weakly_supported?: number | null
+  claims_unsupported?: number | null
+  citations_checked?: number | null
+  verifier_passed?: boolean | null
+  warnings?: string[] | null
+  repair_applied?: boolean | null
+  refusal_reason?: string | null
 }
 
 export type GraphNodeType =
