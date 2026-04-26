@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import brandLogo from '../../LoDi-LoDi-Capital_letter_L_featu...-Apr_25_2026_17-01-r2j3avfe-removebg-preview.png.svg'
 
@@ -13,14 +14,24 @@ function AppLayout() {
   const isStudioRoute = location.pathname === '/graph'
     || location.pathname === '/product'
     || location.pathname === '/canvas'
+  const homeBrandMaskStyle = isHomeRoute
+    ? ({ '--brand-mark-mask': `url("${brandLogo}")` } as CSSProperties)
+    : undefined
 
   return (
     <div className={`app-shell${isHomeRoute ? ' app-shell--home' : ''}${isStudioRoute ? ' app-shell--studio' : ''}`}>
       {!isStudioRoute ? (
         <header className="navbar">
           <Link to="/" className="brand">
-            <span className="brand-mark">
-              <img src={brandLogo} alt="" aria-hidden="true" />
+            <span
+              className={`brand-mark${isHomeRoute ? ' brand-mark--accent' : ''}`}
+              style={homeBrandMaskStyle}
+            >
+              {isHomeRoute ? (
+                <span className="brand-mark__accent-fill" aria-hidden="true" />
+              ) : (
+                <img src={brandLogo} alt="" aria-hidden="true" />
+              )}
             </span>
             <strong className="brand-wordmark">LexAi</strong>
           </Link>
