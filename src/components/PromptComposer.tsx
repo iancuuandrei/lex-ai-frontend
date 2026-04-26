@@ -110,7 +110,7 @@ export default function PromptComposer({
             className="prompt-icon-button prompt-icon-button-primary"
             type="button"
             aria-label="Send prompt"
-            disabled={!onSend && value.trim().length === 0}
+            disabled={!onSend || value.trim().length === 0}
             onClick={() => {
               if (onSend) onSend()
             }}

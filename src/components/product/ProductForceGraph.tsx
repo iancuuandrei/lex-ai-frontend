@@ -3,8 +3,14 @@ import { forceCollide } from 'd3-force-3d'
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d'
 import legalEdgesRaw from '../../assets/legal_edges.json'
 import legalUnitsRaw from '../../assets/legal_units.json'
+import type {
+  GraphEdge as BackendGraphEdge,
+  GraphNode as BackendGraphNode,
+  GraphNodeType,
+  QueryGraphResponse,
+} from '../../types/lexai'
 
-type LegalCategory = 'root' | 'article' | 'paragraph' | 'letter' | 'point'
+type LegalCategory = 'root' | 'query' | 'claim' | 'article' | 'paragraph' | 'letter' | 'point'
 
 interface LegalUnit {
   id: string
@@ -23,7 +29,7 @@ interface LegalEdge {
   type: string
 }
 
-interface GraphNode extends NodeObject {
+export interface ProductForceGraphNode extends NodeObject {
   id: string
   label: string
   category: LegalCategory
@@ -32,13 +38,22 @@ interface GraphNode extends NodeObject {
   val: number
 }
 
+type GraphNode = ProductForceGraphNode
+type RenderNode = NodeObject<ProductForceGraphNode>
+type RenderLink = LinkObject<ProductForceGraphNode, GraphLink>
+
 interface GraphLink extends LinkObject {
+  id: string
   source: string
   target: string
+  edgeType?: string
+  label?: string
 }
 
 const categoryColor: Record<LegalCategory, string> = {
-  root: '#2a2a2e',
+  root: '#303036',
+  query: '#263b68',
+  claim: '#3a2f58',
   article: '#1e1e22',
   paragraph: '#18181b',
   letter: '#141416',
@@ -46,6 +61,8 @@ const categoryColor: Record<LegalCategory, string> = {
 }
 
 const categoryBadge: Record<LegalCategory, string> = {
+  query: 'Q',
+  claim: 'Cl',
   root: '§',
   article: 'Ar',
   paragraph: 'Al',
@@ -53,13 +70,10 @@ const categoryBadge: Record<LegalCategory, string> = {
   point: 'Pt',
 }
 
-function hexToRgb(hex: string): string {
-  const n = parseInt(hex.slice(1), 16)
-  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`
-}
-
 const categorySize: Record<LegalCategory, number> = {
   root: 32,
+  query: 30,
+  claim: 18,
   article: 14,
   paragraph: 6,
   letter: 3,
@@ -76,6 +90,10 @@ function categorize(unit: LegalUnit): LegalCategory {
 
 function shortLabel(unit: LegalUnit, category: LegalCategory): string {
   switch (category) {
+    case 'query':
+      return unit.law_title ?? unit.id
+    case 'claim':
+      return unit.law_title ?? unit.id
     case 'root':
       return unit.law_title ?? unit.id
     case 'article':
@@ -119,7 +137,124 @@ const graphNodes: GraphNode[] = legalUnits.map((unit) => {
 
 const graphLinks: GraphLink[] = legalEdges
   .filter((edge) => unitIds.has(edge.source_id) && unitIds.has(edge.target_id))
-  .map((edge) => ({ source: edge.source_id, target: edge.target_id }))
+  .map((edge, index) => ({
+    id: `${edge.source_id}-${edge.target_id}-${index}`,
+    source: edge.source_id,
+    target: edge.target_id,
+    edgeType: edge.type,
+  }))
+
+function getMetadataString(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key]
+  if (typeof value === 'string' && value.trim().length > 0) return value
+  if (typeof value === 'number') return String(value)
+  return null
+}
+
+function getMetadataList(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key]
+  if (!Array.isArray(value)) return null
+  const parts = value
+    .map((item) => (typeof item === 'string' || typeof item === 'number' ? String(item) : null))
+    .filter((item): item is string => item != null && item.trim().length > 0)
+  return parts.length > 0 ? parts : null
+}
+
+function getBackendNodeType(node: BackendGraphNode): GraphNodeType {
+  return node.type ?? node.node_type ?? 'root'
+}
+
+function getBackendEdgeType(edge: BackendGraphEdge) {
+  return edge.type ?? edge.edge_type ?? 'contains'
+}
+
+function categoryFromBackendNode(node: BackendGraphNode): LegalCategory {
+  const type = getBackendNodeType(node)
+
+  if (type === 'query') return 'query'
+  if (type === 'cited_claim') return 'claim'
+  if (type === 'article') return 'article'
+  if (type === 'paragraph') return 'paragraph'
+  if (type === 'letter') return 'letter'
+  if (type === 'point') return 'point'
+
+  return 'root'
+}
+
+function fullLabelFromBackendNode(node: BackendGraphNode) {
+  const metadata = node.metadata
+  const hierarchy = getMetadataList(metadata, 'hierarchy_path')
+  if (hierarchy) return hierarchy.join(' > ')
+
+  const parts = [
+    getMetadataString(metadata, 'law_title'),
+    getMetadataString(metadata, 'act_title'),
+    getMetadataString(metadata, 'source'),
+    getMetadataString(metadata, 'source_id'),
+    getMetadataString(metadata, 'article_number'),
+  ].filter((part): part is string => part != null)
+
+  return parts.length > 0 ? parts.join(' > ') : node.label
+}
+
+function textFromBackendNode(node: BackendGraphNode) {
+  const metadata = node.metadata
+  const text =
+    getMetadataString(metadata, 'raw_text') ??
+    getMetadataString(metadata, 'excerpt') ??
+    getMetadataString(metadata, 'snippet') ??
+    getMetadataString(metadata, 'normalized_text') ??
+    getMetadataString(metadata, 'text') ??
+    getMetadataString(metadata, 'source')
+
+  return (text ?? '').slice(0, 420)
+}
+
+function mapBackendNode(node: BackendGraphNode): GraphNode {
+  const category = categoryFromBackendNode(node)
+
+  return {
+    id: node.id,
+    label: node.label,
+    fullLabel: fullLabelFromBackendNode(node),
+    text: textFromBackendNode(node),
+    category,
+    val: categorySize[category],
+  }
+}
+
+function mapBackendEdge(edge: BackendGraphEdge, index: number): GraphLink {
+  const edgeType = getBackendEdgeType(edge)
+
+  return {
+    id: edge.id ?? `${edge.source}-${edge.target}-${index}`,
+    source: edge.source,
+    target: edge.target,
+    edgeType,
+    label: edge.label ?? edgeType,
+  }
+}
+
+function getEndpointId(endpoint: unknown) {
+  if (typeof endpoint === 'string' || typeof endpoint === 'number') {
+    return String(endpoint)
+  }
+
+  if (endpoint && typeof endpoint === 'object' && 'id' in endpoint) {
+    const id = (endpoint as { id?: string | number }).id
+    return id == null ? '' : String(id)
+  }
+
+  return ''
+}
+
+function getLinkKey(link: GraphLink) {
+  return link.id || `${getEndpointId(link.source)}-${getEndpointId(link.target)}`
+}
+
+function isEvidenceEdgeType(edgeType: string | undefined) {
+  return edgeType === 'cited_in_answer' || edgeType === 'supports_claim'
+}
 
 export interface ProductForceGraphHandle {
   focusRandomNode: () => void
@@ -129,11 +264,20 @@ export interface ProductForceGraphHandle {
 interface ProductForceGraphProps {
   hideParagraphs?: boolean
   onNodesDiscovered?: (nodes: GraphNode[]) => void
+  queryGraph?: QueryGraphResponse | null
+  highlightedNodeIds?: string[]
+  highlightedEdgeIds?: string[]
 }
 
-const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphProps>(function ProductForceGraph({ hideParagraphs = false, onNodesDiscovered }, ref) {
+const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphProps>(function ProductForceGraph({
+  hideParagraphs = false,
+  onNodesDiscovered,
+  queryGraph = null,
+  highlightedNodeIds: highlightedNodeIdsProp,
+  highlightedEdgeIds: highlightedEdgeIdsProp,
+}, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink>>(undefined!)
+  const graphRef = useRef<ForceGraphMethods<RenderNode, RenderLink>>(undefined!)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null)
@@ -143,6 +287,21 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   const bannerTimerRef = useRef<number | null>(null)
   const globalScaleRef = useRef(1)
   const highlightStartRef = useRef(0)
+  const queryHighlightedNodeIds = queryGraph?.highlighted_node_ids
+  const queryHighlightedEdgeIds = queryGraph?.highlighted_edge_ids
+  const queryCitedUnitIds = queryGraph?.cited_unit_ids
+  const backendHighlightedNodeIds = useMemo(
+    () => new Set(highlightedNodeIdsProp ?? queryHighlightedNodeIds ?? []),
+    [highlightedNodeIdsProp, queryHighlightedNodeIds],
+  )
+  const backendHighlightedEdgeIds = useMemo(
+    () => new Set(highlightedEdgeIdsProp ?? queryHighlightedEdgeIds ?? []),
+    [highlightedEdgeIdsProp, queryHighlightedEdgeIds],
+  )
+  const citedNodeIds = useMemo(
+    () => new Set(queryCitedUnitIds ?? []),
+    [queryCitedUnitIds],
+  )
 
   const handleNodeHover = useCallback((node: NodeObject | null) => {
     if (bannerTimerRef.current) {
@@ -227,18 +386,63 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   }, [])
 
   const data = useMemo(() => {
-    if (!hideParagraphs) return { nodes: graphNodes, links: graphLinks }
-    const filtered = graphNodes.filter((n) => n.category !== 'paragraph')
+    const baseNodes = queryGraph
+      ? queryGraph.graph.nodes.map(mapBackendNode)
+      : graphNodes
+    const baseNodeIds = new Set(baseNodes.map((node) => node.id))
+    const baseLinks = queryGraph
+      ? queryGraph.graph.edges
+          .map(mapBackendEdge)
+          .filter((edge) => baseNodeIds.has(edge.source) && baseNodeIds.has(edge.target))
+      : graphLinks
+
+    if (!hideParagraphs) return { nodes: baseNodes, links: baseLinks }
+
+    const protectedNodeIds = new Set([
+      ...backendHighlightedNodeIds,
+      ...citedNodeIds,
+    ])
+    const filtered = baseNodes.filter((n) => n.category !== 'paragraph' || protectedNodeIds.has(n.id))
     const filteredIds = new Set(filtered.map((n) => n.id))
+
     return {
       nodes: filtered,
-      links: graphLinks.filter((l) => {
-        const sourceId = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source
-        const targetId = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target
+      links: baseLinks.filter((l) => {
+        const sourceId = getEndpointId(l.source)
+        const targetId = getEndpointId(l.target)
         return filteredIds.has(sourceId) && filteredIds.has(targetId)
       }),
     }
-  }, [hideParagraphs])
+  }, [backendHighlightedNodeIds, citedNodeIds, hideParagraphs, queryGraph])
+
+  useEffect(() => {
+    if (!queryGraph) return
+
+    setHighlightedNodeIds(new Set([...backendHighlightedNodeIds, ...citedNodeIds]))
+    setHighlightedLinkIds(new Set(backendHighlightedEdgeIds))
+    highlightStartRef.current = performance.now()
+
+    const timerId = window.setTimeout(() => {
+      const nodes = data.nodes as GraphNode[]
+      const preferredTarget =
+        nodes.find((node) => backendHighlightedNodeIds.has(node.id) && typeof node.x === 'number' && typeof node.y === 'number') ??
+        nodes.find((node) => citedNodeIds.has(node.id) && typeof node.x === 'number' && typeof node.y === 'number') ??
+        nodes.find((node) => node.category === 'query' && typeof node.x === 'number' && typeof node.y === 'number')
+
+      if (!preferredTarget) return
+
+      void flyToNode(
+        preferredTarget,
+        {
+          nodes: new Set([...backendHighlightedNodeIds, ...citedNodeIds]),
+          links: new Set(backendHighlightedEdgeIds),
+        },
+        1600,
+      )
+    }, 900)
+
+    return () => window.clearTimeout(timerId)
+  }, [backendHighlightedEdgeIds, backendHighlightedNodeIds, citedNodeIds, data, flyToNode, queryGraph])
 
   useImperativeHandle(ref, () => ({
     focusRandomNode() {
@@ -247,6 +451,21 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         (n) => typeof n.x === 'number' && typeof n.y === 'number',
       )
       if (positioned.length === 0) return
+
+      if (queryGraph) {
+        const highlightedTarget =
+          positioned.find((node) => backendHighlightedNodeIds.has(node.id)) ??
+          positioned.find((node) => citedNodeIds.has(node.id)) ??
+          positioned.find((node) => node.category === 'query')
+        if (highlightedTarget) {
+          void flyToNode(highlightedTarget, {
+            nodes: new Set([...backendHighlightedNodeIds, ...citedNodeIds]),
+            links: new Set(backendHighlightedEdgeIds),
+          })
+          return
+        }
+      }
+
       // prefer root/article but fall back to any positioned node
       const hubs = positioned.filter((n) => n.category === 'root' || n.category === 'article')
       const pool = hubs.length > 0 ? hubs : positioned
@@ -256,6 +475,21 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     async discoverNodes() {
       const nodes = data.nodes as GraphNode[]
       if (nodes.length === 0) return
+
+      if (queryGraph) {
+        const highlighted = nodes.filter((node) => backendHighlightedNodeIds.has(node.id) || citedNodeIds.has(node.id))
+        const positioned = highlighted.filter((node) => typeof node.x === 'number' && typeof node.y === 'number')
+        if (onNodesDiscovered) onNodesDiscovered(highlighted.slice(0, 8))
+
+        const target = positioned[0] ?? nodes.find((node) => node.category === 'query')
+        if (target) {
+          await flyToNode(target, {
+            nodes: new Set([...backendHighlightedNodeIds, ...citedNodeIds]),
+            links: new Set(backendHighlightedEdgeIds),
+          }, 1600)
+        }
+        return
+      }
 
       // 1. Pick 8 random seed nodes
       const seeds: GraphNode[] = []
@@ -274,14 +508,14 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         discoveredNodeIds.add(seed.id)
         
         // Find links where this seed is source or target
-        data.links.forEach((link, index) => {
-          const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source
-          const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target
+        data.links.forEach((link) => {
+          const sourceId = getEndpointId(link.source)
+          const targetId = getEndpointId(link.target)
           
           if (sourceId === seed.id || targetId === seed.id) {
             discoveredNodeIds.add(sourceId)
             discoveredNodeIds.add(targetId)
-            discoveredLinkIds.add(`${sourceId}-${targetId}-${index}`)
+            discoveredLinkIds.add(getLinkKey(link))
           }
         })
       })
@@ -294,10 +528,18 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         // Fast move (1s) for subsequent nodes, normal for first
         await flyToNode(seeds[i], highlights, i === 0 ? 2500 : 1200)
         // brief pause at each node
-        await new Promise(r => setTimeout(resolve => r(null), 800))
+        await new Promise((resolve) => window.setTimeout(resolve, 800))
       }
     }
-  }), [flyToNode, data, onNodesDiscovered])
+  }), [
+    backendHighlightedEdgeIds,
+    backendHighlightedNodeIds,
+    citedNodeIds,
+    data,
+    flyToNode,
+    onNodesDiscovered,
+    queryGraph,
+  ])
 
   useEffect(() => {
     const element = containerRef.current
@@ -323,16 +565,13 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
       | undefined
     linkForce?.distance((link) => {
       const target = (typeof link.target === 'object' ? link.target : null) as GraphNode | null
-      const base = target?.category === 'article'
-        ? 140
-        : target?.category === 'paragraph'
-          ? 35
-          : target?.category === 'letter'
-            ? 25
-            : target?.category === 'point'
-              ? 18
-              : 180
-      return base
+      if (target?.category === 'query') return 180
+      if (target?.category === 'claim') return 120
+      if (target?.category === 'article') return 140
+      if (target?.category === 'paragraph') return 35
+      if (target?.category === 'letter') return 25
+      if (target?.category === 'point') return 18
+      return 180
     })
 
     const chargeForce = graph.d3Force('charge') as
@@ -344,7 +583,8 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     graph.d3Force('collide', forceCollide<GraphNode>()
       .radius((node) => {
         const cat = (node as GraphNode).category
-        return cat === 'root' ? 60
+        return cat === 'root' || cat === 'query' ? 60
+          : cat === 'claim' ? 42
           : cat === 'article' ? 35
           : cat === 'paragraph' ? 18
           : 10
@@ -356,12 +596,12 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     if (size.width > 0 && size.height > 0) {
       graph.d3ReheatSimulation()
     }
-  }, [size.width, size.height])
+  }, [queryGraph, size.width, size.height])
 
   return (
     <div ref={containerRef} className="product-force-graph">
       {size.width > 0 && size.height > 0 ? (
-        <ForceGraph2D
+        <ForceGraph2D<ProductForceGraphNode, GraphLink>
           ref={graphRef}
           graphData={data}
           width={size.width}
@@ -372,13 +612,14 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
           nodeColor={(node) => categoryColor[(node as GraphNode).category]}
           nodeLabel={() => ''}
           onNodeHover={handleNodeHover}
-          linkColor={(link, index) => {
+          linkColor={(link) => {
             const source = (typeof link.source === 'object' ? link.source : null) as GraphNode | null
             const target = (typeof link.target === 'object' ? link.target : null) as GraphNode | null
             const gs = globalScaleRef.current
 
             function nodeHidden(n: GraphNode | null) {
               if (!n) return false
+              if (highlightedNodeIds.has(n.id)) return false
               if (n.category === 'paragraph' && gs < 0.7) return true
               if (n.category === 'letter' && gs < 1.1) return true
               if (n.category === 'point' && gs < 1.6) return true
@@ -387,30 +628,36 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
 
             if (nodeHidden(source) || nodeHidden(target)) return 'rgba(0,0,0,0)'
 
-            const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source
-            const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target
+            const sourceId = getEndpointId(link.source)
+            const targetId = getEndpointId(link.target)
+            const edgeType = (link as GraphLink).edgeType
             
-            const isHighlighted = highlightedLinkIds.has(`${sourceId}-${targetId}-${index}`)
+            const isHighlighted = highlightedLinkIds.has(getLinkKey(link as GraphLink))
             // Strong connection if both ends are highlighted
             const isStrong = highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
+            const isEvidenceEdge = isEvidenceEdgeType(edgeType)
 
-            if (isHighlighted || isStrong) {
+            if (isHighlighted || isStrong || isEvidenceEdge) {
               const elapsed = (performance.now() - highlightStartRef.current) / 1000
               const pulse = 0.6 + 0.4 * Math.sin(elapsed * 4)
-              const baseOpacity = isStrong ? 0.85 : 0.6
+              const baseOpacity = isHighlighted || isStrong ? 0.85 : 0.56
               return `rgba(140, 180, 255, ${(baseOpacity * pulse).toFixed(2)})`
             }
 
             // Strengthen as we zoom in: opacity goes from ~0.08 up to ~0.32
-            const opacity = Math.min(0.32, 0.08 + (gs - 0.5) * 0.1)
+            const opacity = edgeType === 'contains'
+              ? Math.min(0.22, 0.06 + (gs - 0.5) * 0.07)
+              : Math.min(0.36, 0.12 + (gs - 0.5) * 0.11)
             return `rgba(220, 220, 235, ${opacity.toFixed(2)})`
           }}
-          linkWidth={(link, index) => {
-            const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source
-            const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target
+          linkWidth={(link) => {
+            const sourceId = getEndpointId(link.source)
+            const targetId = getEndpointId(link.target)
+            const edgeType = (link as GraphLink).edgeType
             const isStrong = highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
-            if (isStrong) return 2.8
-            return highlightedLinkIds.has(`${sourceId}-${targetId}-${index}`) ? 1.8 : 0.9
+            if (isStrong || highlightedLinkIds.has(getLinkKey(link as GraphLink))) return 2.8
+            if (isEvidenceEdgeType(edgeType)) return 2
+            return edgeType === 'contains' ? 0.7 : 1.1
           }}
           cooldownTicks={800}
           warmupTicks={400}
@@ -422,9 +669,10 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
             globalScaleRef.current = globalScale
             const typed = node as GraphNode
             if (typeof node.x !== 'number' || typeof node.y !== 'number') return
-            if (typed.category === 'point' && globalScale < 1.6) return
-            if (typed.category === 'letter' && globalScale < 1.1) return
-            if (typed.category === 'paragraph' && globalScale < 0.7) return
+            const isHighlighted = highlightedNodeIds.has(typed.id)
+            if (!isHighlighted && typed.category === 'point' && globalScale < 1.6) return
+            if (!isHighlighted && typed.category === 'letter' && globalScale < 1.1) return
+            if (!isHighlighted && typed.category === 'paragraph' && globalScale < 0.7) return
 
             const x = node.x
             const y = node.y
@@ -442,7 +690,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
             const nb = Math.round(cb + (255 - cb) * factor)
             const color = `rgb(${nr}, ${ng}, ${nb})`
 
-            const isHub = typed.category === 'root' || typed.category === 'article'
+            const isHub = typed.category === 'root' || typed.category === 'query' || typed.category === 'article'
 
             // t = 0 → circle (zoomed out), t = 1 → full squircle (zoomed in)
             const zoomLow = isHub ? 0.6 : 0.9
@@ -486,7 +734,6 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
             ctx.closePath()
 
             // highlight glow for focused node
-            const isHighlighted = highlightedNodeIds.has(typed.id)
             if (isHighlighted) {
               const elapsed = (performance.now() - highlightStartRef.current) / 1000
               const pulse = 0.5 + 0.5 * Math.sin(elapsed * 4)
