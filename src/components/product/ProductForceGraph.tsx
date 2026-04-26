@@ -652,13 +652,13 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
       | undefined
     linkForce?.distance((link) => {
       const target = (typeof link.target === 'object' ? link.target : null) as GraphNode | null
-      if (target?.category === 'query') return 250
-      if (target?.category === 'claim') return 180
-      if (target?.category === 'article') return 150
-      if (target?.category === 'paragraph') return 20
-      if (target?.category === 'letter') return 10
-      if (target?.category === 'point') return 5
-      return 150
+      if (target?.category === 'query') return 320
+      if (target?.category === 'claim') return 240
+      if (target?.category === 'article') return 180
+      if (target?.category === 'paragraph') return 40
+      if (target?.category === 'letter') return 25
+      if (target?.category === 'point') return 15
+      return 180
     })
 
     const chargeForce = graph.d3Force('charge') as
@@ -667,25 +667,25 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
       
     chargeForce?.strength((node: unknown) => {
       const cat = (node as GraphNode).category
-      if (cat === 'root' || cat === 'query') return -800
-      if (cat === 'claim') return -500
-      if (cat === 'article') return -400
-      if (cat === 'paragraph') return -30
-      return -10
+      if (cat === 'root' || cat === 'query') return -1200
+      if (cat === 'claim') return -800
+      if (cat === 'article') return -600
+      if (cat === 'paragraph') return -100
+      return -40
     })
-    chargeForce?.distanceMax(1200)
+    chargeForce?.distanceMax(1500)
 
     graph.d3Force('collide', forceCollide<GraphNode>()
       .radius((node) => {
         const cat = (node as GraphNode).category
-        return cat === 'root' || cat === 'query' ? 60
-          : cat === 'claim' ? 42
-          : cat === 'article' ? 35
-          : cat === 'paragraph' ? 18
-          : 10
+        return cat === 'root' || cat === 'query' ? 75
+          : cat === 'claim' ? 52
+          : cat === 'article' ? 45
+          : cat === 'paragraph' ? 25
+          : 15
       })
-      .strength(1)
-      .iterations(4)
+      .strength(0.8)
+      .iterations(2)
     )
 
     if (size.width > 0 && size.height > 0) {
@@ -710,7 +710,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
           height={size.height}
           backgroundColor="rgba(0,0,0,0)"
           linkCurvature={0.2}
-          linkDirectionalArrowLength={2.5}
+          linkDirectionalArrowLength={3.5}
           linkDirectionalArrowRelPos={1}
           nodeRelSize={3}
           nodeVal={(node) => (node as GraphNode).val}
@@ -744,30 +744,30 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
 
             if (isHighlighted || isStrong || isEvidenceEdge) {
               const elapsed = (performance.now() - highlightStartRef.current) / 1000
-              const pulse = 0.6 + 0.4 * Math.sin(elapsed * 4)
-              const baseOpacity = isHighlighted || isStrong ? 0.85 : 0.56
+              const pulse = 0.7 + 0.3 * Math.sin(elapsed * 4)
+              const baseOpacity = isHighlighted || isStrong ? 0.95 : 0.72
               return `rgba(140, 180, 255, ${(baseOpacity * pulse).toFixed(2)})`
             }
 
-            // Strengthen as we zoom in: opacity goes from ~0.08 up to ~0.32
+            // Strengthen as we zoom in: opacity goes from ~0.16 up to ~0.45
             const opacity = edgeType === 'contains'
-              ? Math.min(0.22, 0.06 + (gs - 0.5) * 0.07)
-              : Math.min(0.36, 0.12 + (gs - 0.5) * 0.11)
-            return `rgba(220, 220, 235, ${opacity.toFixed(2)})`
+              ? Math.min(0.32, 0.12 + (gs - 0.5) * 0.12)
+              : Math.min(0.52, 0.22 + (gs - 0.5) * 0.18)
+            return `rgba(200, 210, 235, ${opacity.toFixed(2)})`
           }}
           linkWidth={(link) => {
             const sourceId = getEndpointId(link.source)
             const targetId = getEndpointId(link.target)
             const edgeType = (link as GraphLink).edgeType
             const isStrong = highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
-            if (isStrong || highlightedLinkIds.has(getLinkKey(link as GraphLink))) return 2.8
-            if (isEvidenceEdgeType(edgeType)) return 2
-            return edgeType === 'contains' ? 0.7 : 1.1
+            if (isStrong || highlightedLinkIds.has(getLinkKey(link as GraphLink))) return 3.5
+            if (isEvidenceEdgeType(edgeType)) return 2.6
+            return edgeType === 'contains' ? 1.2 : 1.8
           }}
-          cooldownTicks={800}
+          cooldownTicks={Infinity}
           warmupTicks={400}
-          d3AlphaDecay={0.045}
-          d3VelocityDecay={0.4}
+          d3AlphaDecay={0.002}
+          d3VelocityDecay={0.3}
           enableNodeDrag={false}
           nodeCanvasObjectMode={() => 'replace'}
           nodeCanvasObject={(node, ctx, globalScale) => {
