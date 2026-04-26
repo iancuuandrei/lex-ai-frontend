@@ -1381,6 +1381,195 @@
   line-height: 1.5;
 }
 
+.product-query-error,
+.product-pipeline-status,
+.product-answer-card,
+.product-answer-section,
+.product-graph-ready,
+.product-discovery-banner {
+  border: 1px solid var(--product-chat-border);
+  background: var(--product-chat-surface);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.product-query-error,
+.product-pipeline-status,
+.product-answer-card,
+.product-answer-section,
+.product-discovery-banner {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 1rem;
+}
+
+.product-query-error {
+  border-color: rgba(255, 112, 112, 0.32);
+  background: rgba(100, 28, 32, 0.2);
+}
+
+.product-query-error strong,
+.product-answer-card strong,
+.product-answer-section__header strong,
+.product-evidence-card strong,
+.product-citation-card strong,
+.product-discovery-banner__title,
+.product-graph-ready strong {
+  color: var(--product-chat-text);
+  font-size: 0.95rem;
+}
+
+.product-query-error p,
+.product-answer-card p,
+.product-citation-card p,
+.product-evidence-card p,
+.product-muted-note,
+.product-discovery-banner__path,
+.product-graph-ready small {
+  margin: 0;
+  color: var(--product-chat-text-muted);
+  font-size: 0.84rem;
+  line-height: 1.48;
+}
+
+.product-section-kicker {
+  color: var(--product-chat-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.product-pipeline-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--product-chat-text-soft);
+  font-size: 0.88rem;
+}
+
+.product-pipeline-row small {
+  color: var(--product-chat-text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.product-pipeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8caeff;
+  box-shadow: 0 0 0 6px rgba(140, 174, 255, 0.12);
+}
+
+.product-answer-stack,
+.product-citation-list,
+.product-evidence-list,
+.product-discovery-list {
+  display: grid;
+  gap: 12px;
+}
+
+.product-answer-card--primary {
+  background: linear-gradient(180deg, rgba(58, 63, 82, 0.36), rgba(255, 255, 255, 0.03));
+}
+
+.product-answer-card--primary p {
+  color: var(--product-chat-text);
+  font-size: 0.94rem;
+}
+
+.product-answer-details {
+  color: var(--product-chat-text-soft);
+  font-size: 0.86rem;
+}
+
+.product-answer-details summary {
+  cursor: pointer;
+  color: var(--product-chat-text-soft);
+}
+
+.product-answer-details p {
+  margin-top: 8px;
+}
+
+.product-answer-section__header,
+.product-evidence-card__header,
+.product-discovery-banner__header,
+.product-graph-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.product-citation-card,
+.product-evidence-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 0.85rem;
+  border: 1px solid var(--product-chat-border-soft);
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.product-evidence-card__header span {
+  color: #aecaef;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.product-warning-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--product-chat-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.product-warning-list li + li {
+  margin-top: 6px;
+}
+
+.product-graph-ready {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 1rem;
+  color: var(--product-chat-text-soft);
+}
+
+.product-graph-ready > span {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.product-graph-ready--active {
+  border-color: rgba(140, 174, 255, 0.35);
+  background: rgba(70, 104, 175, 0.16);
+}
+
+.product-graph-ready--active > span {
+  background: #8caeff;
+  box-shadow: 0 0 0 6px rgba(140, 174, 255, 0.12);
+}
+
+.product-discovery-banner__badge {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--product-chat-text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .product-message {
   display: grid;
   grid-template-columns: auto 1fr;

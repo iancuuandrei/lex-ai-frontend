@@ -8,12 +8,17 @@ import {
 } from "react";
 import PromptComposer from "../components/PromptComposer";
 import ProductBackgroundCanvas from "../components/product/ProductBackgroundCanvas";
-import ProductForceGraph, { type ProductForceGraphHandle } from "../components/product/ProductForceGraph";
+import ProductForceGraph, {
+  type ProductForceGraphHandle,
+  type ProductForceGraphNode,
+} from "../components/product/ProductForceGraph";
 import ProductKnowledgeGraph, {
   type ProductGraphEdge,
   type ProductGraphNode,
   type ProductNodeCategory,
 } from "../components/product/ProductKnowledgeGraph";
+import { getQueryGraph, postQuery } from "../lib/api";
+import type { Citation, EvidenceUnit, QueryGraphResponse, QueryResponse } from "../types/lexai";
 
 const productFilters: Array<{ key: ProductNodeCategory; label: string }> = [
   { key: "case", label: "Cases" },
@@ -23,11 +28,9 @@ const productFilters: Array<{ key: ProductNodeCategory; label: string }> = [
 ];
 
 const productPromptIdeas = [
-  "Nulitate contract muncă",
-  "Concediere pierdere încredere",
-  "Motive legale concediere",
-  "Sancțiuni viteză +100 km/h",
-  "Suspendare permis auto",
+  "Poate angajatorul să-mi scadă salariul fără act adițional?",
+  "Cum contest o amendă contravențională?",
+  "În cât timp se prescrie dreptul la acțiune pentru o datorie civilă?",
 ];
 
 const productNodes: ProductGraphNode[] = [
@@ -319,6 +322,48 @@ const productEdges: ProductGraphEdge[] = [
   },
 ];
 
+const queryPipelineSteps = [
+  "Query understanding",
+  "Retrieval",
+  "EvidencePack",
+  "Verifier",
+  "Graph",
+];
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "A apărut o eroare necunoscută.";
+}
+
+function citationLabel(citation: Citation, index: number) {
+  return (
+    citation.label ??
+    citation.title ??
+    citation.act_title ??
+    citation.source ??
+    citation.unit_id ??
+    citation.evidence_unit_id ??
+    citation.id ??
+    `Citation ${index + 1}`
+  );
+}
+
+function citationDetail(citation: Citation) {
+  const location = [
+    citation.article != null ? `art. ${citation.article}` : null,
+    citation.paragraph != null ? `alin. ${citation.paragraph}` : null,
+  ].filter((part): part is string => part != null);
+
+  return citation.excerpt ?? citation.raw_text ?? location.join(", ");
+}
+
+function evidenceLabel(unit: EvidenceUnit, index: number) {
+  return unit.label ?? unit.title ?? unit.source ?? unit.unit_id ?? unit.id ?? `Evidence ${index + 1}`;
+}
+
+function evidenceText(unit: EvidenceUnit) {
+  return unit.raw_text ?? unit.excerpt ?? "Backend response did not include raw_text or excerpt for this evidence unit.";
+}
+
 function ProductToolbarIcon({
   kind,
 }: {
@@ -490,6 +535,7 @@ function ProductPage() {
   };
   const forceGraphRef = useRef<ProductForceGraphHandle | null>(null);
   const assistantRef = useRef<HTMLElement | null>(null);
+  const queryRequestSeqRef = useRef(0);
   const assistantResizeStartRef = useRef<{ x: number; width: number } | null>(
     null,
   );
@@ -503,7 +549,11 @@ function ProductPage() {
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [isResizingAssistant, setIsResizingAssistant] = useState(false);
   const [hideParagraphs, setHideParagraphs] = useState(false);
-  const [discoveredNodes, setDiscoveredNodes] = useState<any[]>([]);
+  const [discoveredNodes, setDiscoveredNodes] = useState<ProductForceGraphNode[]>([]);
+  const [queryResponse, setQueryResponse] = useState<QueryResponse | null>(null);
+  const [queryGraph, setQueryGraph] = useState<QueryGraphResponse | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [isQueryLoading, setIsQueryLoading] = useState(false);
   const [activeFilters, setActiveFilters] = useState<
     Record<ProductNodeCategory, boolean>
   >({
@@ -532,12 +582,6 @@ function ProductPage() {
             node.label.join(" ").toLowerCase().includes(normalizedSearch),
           )
           .map((node) => node.id);
-
-  useEffect(() => {
-    if (selectedNodeId && !visibleNodeIds.has(selectedNodeId)) {
-      setSelectedNodeId(null);
-    }
-  }, [selectedNodeId, visibleNodeIds]);
 
   useEffect(() => {
     function getMaxAllowedWidth() {
@@ -613,6 +657,13 @@ function ProductPage() {
   }, [isResizingAssistant]);
 
   function toggleFilter(category: ProductNodeCategory) {
+    if (activeFilters[category] && selectedNodeId) {
+      const selected = productNodes.find((node) => node.id === selectedNodeId);
+      if (selected?.category === category) {
+        setSelectedNodeId(null);
+      }
+    }
+
     setActiveFilters((current) => ({
       ...current,
       [category]: !current[category],
@@ -627,13 +678,51 @@ function ProductPage() {
     setZoom((current) => Math.max(0.82, Number((current - 0.06).toFixed(2))));
   }
 
-  const handleSend = useCallback(() => {
-    setDiscoveredNodes([]);
-    forceGraphRef.current?.discoverNodes();
-    setPromptValue("");
-  }, []);
+  const handleSend = useCallback(async () => {
+    const question = promptValue.trim();
+    if (!question) return;
 
-  const handleNodesDiscovered = useCallback((nodes: any[]) => {
+    const requestSeq = queryRequestSeqRef.current + 1;
+    queryRequestSeqRef.current = requestSeq;
+
+    setIsQueryLoading(true);
+    setQueryError(null);
+    setQueryResponse(null);
+    setQueryGraph(null);
+    setDiscoveredNodes([]);
+    setPromptValue("");
+
+    try {
+      const response = await postQuery({
+        question,
+        jurisdiction: "RO",
+        date: "current",
+        mode: "strict_citations",
+        debug: true,
+      });
+
+      if (queryRequestSeqRef.current !== requestSeq) return;
+      setQueryResponse(response);
+
+      try {
+        const graphResponse = await getQueryGraph(response.query_id);
+        if (queryRequestSeqRef.current !== requestSeq) return;
+        setQueryGraph(graphResponse);
+      } catch (error) {
+        if (queryRequestSeqRef.current !== requestSeq) return;
+        setQueryError(`Răspunsul a fost primit, dar graful nu s-a putut încărca: ${getErrorMessage(error)}`);
+      }
+    } catch (error) {
+      if (queryRequestSeqRef.current !== requestSeq) return;
+      setQueryError(getErrorMessage(error));
+    } finally {
+      if (queryRequestSeqRef.current === requestSeq) {
+        setIsQueryLoading(false);
+      }
+    }
+  }, [promptValue]);
+
+  const handleNodesDiscovered = useCallback((nodes: ProductForceGraphNode[]) => {
     setDiscoveredNodes(nodes);
   }, []);
 
@@ -704,21 +793,122 @@ function ProductPage() {
 
               <span className="product-ready-badge">
                 <span />
-                Ready
+                {isQueryLoading ? "Running" : queryGraph ? "Graph ready" : "Ready"}
               </span>
             </div>
 
             <div className="product-assistant-scroll">
-              {discoveredNodes.length > 0 ? (
+              {queryError ? (
+                <div className="product-query-error" role="alert">
+                  <strong>Request failed</strong>
+                  <p>{queryError}</p>
+                </div>
+              ) : null}
+
+              {isQueryLoading ? (
+                <div className="product-pipeline-status" aria-live="polite">
+                  <span className="product-section-kicker">Pipeline</span>
+                  {queryPipelineSteps.map((step, index) => (
+                    <div key={step} className="product-pipeline-row">
+                      <span className="product-pipeline-dot" />
+                      <span>{step}</span>
+                      <small>{index === 0 ? "running" : "queued"}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : queryResponse ? (
+                <div className="product-answer-stack">
+                  <article className="product-answer-card product-answer-card--primary">
+                    <span className="product-section-kicker">Short answer</span>
+                    <p>{queryResponse.answer.short_answer ?? "Backend response did not include answer.short_answer."}</p>
+                    {queryResponse.answer.detailed_answer ? (
+                      <details className="product-answer-details">
+                        <summary>Detailed answer</summary>
+                        <p>{queryResponse.answer.detailed_answer}</p>
+                      </details>
+                    ) : null}
+                  </article>
+
+                  <section className="product-answer-section">
+                    <div className="product-answer-section__header">
+                      <span className="product-section-kicker">Citations</span>
+                      <strong>{queryResponse.citations.length}</strong>
+                    </div>
+                    {queryResponse.citations.length > 0 ? (
+                      <div className="product-citation-list">
+                        {queryResponse.citations.map((citation, index) => (
+                          <article key={citation.id ?? citation.unit_id ?? index} className="product-citation-card">
+                            <strong>{citationLabel(citation, index)}</strong>
+                            {citationDetail(citation) ? <p>{citationDetail(citation)}</p> : null}
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="product-muted-note">Backend response did not include citations.</p>
+                    )}
+                  </section>
+
+                  <article className="product-answer-card">
+                    <span className="product-section-kicker">Verifier</span>
+                    <strong>{queryResponse.verifier?.status ?? "unknown"}</strong>
+                    <p>{queryGraph?.verifier_summary ?? queryResponse.verifier?.summary ?? queryResponse.verifier?.rationale ?? "Backend response did not include a verifier summary."}</p>
+                  </article>
+
+                  {queryResponse.warnings.length > 0 ? (
+                    <section className="product-answer-section">
+                      <span className="product-section-kicker">Warnings</span>
+                      <ul className="product-warning-list">
+                        {queryResponse.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
+
+                  <section className="product-answer-section">
+                    <div className="product-answer-section__header">
+                      <span className="product-section-kicker">Evidence</span>
+                      <strong>{queryResponse.evidence_units.length}</strong>
+                    </div>
+                    {queryResponse.evidence_units.length > 0 ? (
+                      <div className="product-evidence-list">
+                        {queryResponse.evidence_units.map((unit, index) => (
+                          <article key={unit.id ?? unit.unit_id ?? index} className="product-evidence-card">
+                            <div className="product-evidence-card__header">
+                              <strong>{evidenceLabel(unit, index)}</strong>
+                              {unit.score != null ? <span>{unit.score.toFixed(2)}</span> : null}
+                            </div>
+                            <p>{evidenceText(unit)}</p>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="product-muted-note">Backend response did not include evidence_units.</p>
+                    )}
+                  </section>
+
+                  <div className={`product-graph-ready${queryGraph ? " product-graph-ready--active" : ""}`}>
+                    <span />
+                    <strong>{queryGraph ? "Graph ready" : "Graph pending"}</strong>
+                    <small>
+                      {queryGraph
+                        ? `${queryGraph.graph.nodes.length} nodes / ${queryGraph.graph.edges.length} edges`
+                        : "Waiting for /api/query/{query_id}/graph"}
+                    </small>
+                  </div>
+                </div>
+              ) : queryError ? null : discoveredNodes.length > 0 ? (
                 <div className="product-discovery-list">
                   {discoveredNodes.map((node) => (
                     <article key={node.id} className="product-discovery-banner">
                       <div className="product-discovery-banner__header">
                         <span className="product-discovery-banner__badge">
-                          {node.category === 'root' ? '§' : 
-                           node.category === 'article' ? 'Ar' : 
-                           node.category === 'paragraph' ? 'Al' : 
-                           node.category === 'letter' ? 'Lt' : 'Pt'}
+                          {node.category === "root" ? "§" :
+                           node.category === "query" ? "Q" :
+                           node.category === "claim" ? "Cl" :
+                           node.category === "article" ? "Ar" :
+                           node.category === "paragraph" ? "Al" :
+                           node.category === "letter" ? "Lt" : "Pt"}
                         </span>
                         <strong className="product-discovery-banner__title">{node.label}</strong>
                       </div>
@@ -732,13 +922,12 @@ function ProductPage() {
                     <ProductToolbarIcon kind="spark" />
                   </div>
                   <strong>Începe o conversație nouă</strong>
-                  <p>· Pune intrebări despre orice concept legal</p>
-                  <p>· Cere rezumate sau explicații</p>
-                  <p>· Explorează conexiunile din graful de cunoștințe</p>
+                  <p>Pune întrebări despre concepte juridice.</p>
+                  <p>Cere rezumate sau explicații cu citări.</p>
+                  <p>Explorează conexiunile din graful de cunoștințe.</p>
                 </div>
               )}
             </div>
-
             <div className="product-composer">
               <PromptComposer
                 className="product-prompt-card"
@@ -770,6 +959,9 @@ function ProductPage() {
               ref={forceGraphRef} 
               hideParagraphs={hideParagraphs} 
               onNodesDiscovered={handleNodesDiscovered}
+              queryGraph={queryGraph}
+              highlightedNodeIds={queryGraph?.highlighted_node_ids}
+              highlightedEdgeIds={queryGraph?.highlighted_edge_ids}
             />
           </div>
         ) : null}
