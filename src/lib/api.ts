@@ -75,10 +75,10 @@ export function getLibrary(): Promise<LibraryItem[]> {
   return requestJson<LibraryItem[]>('/api/library')
 }
 
-export function getProductGraph(): Promise<{ nodes: any[]; edges: any[] }> {
-  return requestJson<{ nodes: any[]; edges: any[] }>('/api/product/graph')
+export function getProductGraph(): Promise<{ nodes: unknown[]; edges: unknown[] }> {
+  return requestJson<{ nodes: unknown[]; edges: unknown[] }>('/api/product/graph')
 }
 
-export function getExploreGraph(): Promise<{ nodes: any[]; edges: string[][] }> {
-  return requestJson<{ nodes: any[]; edges: string[][] }>('/api/graph/explore')
+export function getExploreGraph(): Promise<{ nodes: unknown[]; edges: string[][] }> {
+  return requestJson<{ nodes: unknown[]; edges: string[][] }>('/api/graph/explore')
 }

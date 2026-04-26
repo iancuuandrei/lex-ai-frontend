@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef, type FormEvent, useEffect } from 'react';
+import { useState, useCallback, useRef, type FormEvent, useEffect } from 'react';
 import Graph from 'graphology';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import SigmaGraphRenderer from '../components/explore/SigmaGraphRenderer';
@@ -11,7 +11,14 @@ const DOMAIN_CONFIG: Record<string, { color: string; label: string }> = {
   Fiscal: { color: 'var(--accent)', label: 'Fiscal' },
 };
 
-function buildGraphFromData(data: { nodes: any[], edges: string[][] }): Graph {
+type GraphNodeData = {
+  id: string;
+  label: string;
+  domain: string;
+  zoomLevel: number;
+};
+
+function buildGraphFromData(data: { nodes: GraphNodeData[], edges: string[][] }): Graph {
   const g = new Graph({ multi: false, type: 'undirected' });
 
   data.nodes.forEach(({ id, label, domain, zoomLevel }, i) => {
