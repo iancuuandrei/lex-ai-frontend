@@ -9,11 +9,6 @@ const EDGE_PADDING = 180
 const GRID_MAJOR_SIZE = 320
 const GRID_MINOR_SIZE = 32
 const HOVER_EFFECT_RADIUS = 220
-const MOVABLE_BOX_SIZE = 1000
-const MOVABLE_BOX_INITIAL_POSITION = {
-  x: WORLD_SIZE / 2 - MOVABLE_BOX_SIZE / 2,
-  y: WORLD_SIZE / 2 - MOVABLE_BOX_SIZE / 2,
-}
 
 interface SurfaceSize {
   width: number
@@ -75,7 +70,6 @@ function isLikelyTrackpad(event: WheelLikeEvent) {
 
 export default function ProductBackgroundCanvas() {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
-  const boxDragRef = useRef<{ startPointer: CanvasPoint; startPosition: CanvasPoint } | null>(null)
   const viewportRef = useRef<ViewportState>({
     x: 0,
     y: 0,
@@ -88,7 +82,6 @@ export default function ProductBackgroundCanvas() {
   const [surfaceSize, setSurfaceSize] = useState<SurfaceSize>({ width: 0, height: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [hoverWorldPoint, setHoverWorldPoint] = useState<CanvasPoint | null>(null)
-  const [boxPosition, setBoxPosition] = useState(MOVABLE_BOX_INITIAL_POSITION)
   const [zoomReadout, setZoomReadout] = useState(INITIAL_SCALE)
   const x = useMotionValue(0)
   const y = useMotionValue(0)
@@ -382,46 +375,6 @@ export default function ProductBackgroundCanvas() {
     setHoverWorldPoint(null)
   }
 
-  function clampBoxPosition(nextPosition: CanvasPoint) {
-    return {
-      x: clamp(nextPosition.x, 0, WORLD_SIZE - MOVABLE_BOX_SIZE),
-      y: clamp(nextPosition.y, 0, WORLD_SIZE - MOVABLE_BOX_SIZE),
-    }
-  }
-
-  function handleBoxPointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    event.stopPropagation()
-
-    const element = event.currentTarget
-    element.setPointerCapture(event.pointerId)
-
-    boxDragRef.current = {
-      startPointer: { x: event.clientX, y: event.clientY },
-      startPosition: boxPosition,
-    }
-  }
-
-  function handleBoxPointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (!boxDragRef.current) return
-
-    event.stopPropagation()
-
-    const deltaX = (event.clientX - boxDragRef.current.startPointer.x) / viewportRef.current.scale
-    const deltaY = (event.clientY - boxDragRef.current.startPointer.y) / viewportRef.current.scale
-
-    setBoxPosition(clampBoxPosition({
-      x: boxDragRef.current.startPosition.x + deltaX,
-      y: boxDragRef.current.startPosition.y + deltaY,
-    }))
-  }
-
-  function handleBoxPointerUp(event: React.PointerEvent<HTMLDivElement>) {
-    if (!boxDragRef.current) return
-
-    event.stopPropagation()
-    boxDragRef.current = null
-  }
-
   const hoverMask = hoverWorldPoint
     ? `radial-gradient(circle ${HOVER_EFFECT_RADIUS}px at ${hoverWorldPoint.x}px ${hoverWorldPoint.y}px, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.88) 38%, transparent 100%)`
     : 'radial-gradient(circle 0px at 0 0, transparent 0%, transparent 100%)'
@@ -492,36 +445,6 @@ export default function ProductBackgroundCanvas() {
             WebkitMaskImage: hoverMask,
           }}
         />
-        <motion.div
-          className="product-background-canvas__world product-background-canvas__world--box-layer"
-          style={{
-            x,
-            y,
-            scale,
-            willChange: 'transform',
-          }}
-        >
-          <div
-            className="product-background-canvas__box"
-            style={{
-              left: `${boxPosition.x}px`,
-              top: `${boxPosition.y}px`,
-              width: `${MOVABLE_BOX_SIZE}px`,
-              height: `${MOVABLE_BOX_SIZE}px`,
-            }}
-            onPointerDown={handleBoxPointerDown}
-            onPointerMove={handleBoxPointerMove}
-            onPointerUp={handleBoxPointerUp}
-            onPointerCancel={handleBoxPointerUp}
-          >
-            <span className="product-background-canvas__box-eyebrow">Canvas Block</span>
-            <strong>Movable 1000 × 1000 box</strong>
-            <p>
-              This box lives inside the product canvas world and can be dragged
-              independently of the canvas pan and zoom.
-            </p>
-          </div>
-        </motion.div>
       </div>
     </div>
   )

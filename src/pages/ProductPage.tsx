@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useRef, useState, type CSSProperties } from 'react'
 import PromptComposer from '../components/PromptComposer'
 import ProductBackgroundCanvas from '../components/product/ProductBackgroundCanvas'
+import ProductForceGraph from '../components/product/ProductForceGraph'
 import ProductKnowledgeGraph, {
   type ProductGraphEdge,
   type ProductGraphNode,
@@ -169,17 +170,22 @@ function ProductToolbarIcon({ kind }: { kind: 'graph' | 'list' | 'filter' | 'sha
 
 function ProductPage() {
   const showGraph = false
-  const assistantMinWidth = 320
-  const assistantMaxWidth = 720
+  const assistantMinWidth = 360
+  const assistantMaxWidth = 900
   const assistantMobileBreakpoint = 760
-  const assistantDefaultWidth = 420
+  const getDefaultAssistantWidth = () => {
+    if (typeof window === 'undefined') {
+      return 480
+    }
+    return Math.min(assistantMaxWidth, Math.max(assistantMinWidth, Math.round(window.innerWidth * 0.3)))
+  }
   const assistantRef = useRef<HTMLElement | null>(null)
   const assistantResizeStartRef = useRef<{ x: number; width: number } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [promptValue, setPromptValue] = useState('')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [assistantWidth, setAssistantWidth] = useState(assistantDefaultWidth)
+  const [assistantWidth, setAssistantWidth] = useState(getDefaultAssistantWidth)
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false)
   const [isResizingAssistant, setIsResizingAssistant] = useState(false)
   const [activeFilters, setActiveFilters] = useState<Record<ProductNodeCategory, boolean>>({
@@ -312,40 +318,6 @@ function ProductPage() {
       <ProductBackgroundCanvas />
 
       <div className={workspaceClassName} style={workspaceStyle}>
-        <nav className="product-rail" aria-label="Workspace sections">
-          <button
-            type="button"
-            className={`product-rail-button${!isAssistantCollapsed ? ' product-rail-button--active' : ''}`}
-            aria-pressed={!isAssistantCollapsed}
-            onClick={() => {
-              setIsAssistantCollapsed((current) => !current)
-            }}
-          >
-            <ProductToolbarIcon kind="message" />
-          </button>
-          <button
-            type="button"
-            className={`product-rail-button${isAssistantCollapsed ? ' product-rail-button--active' : ''}`}
-          >
-            <ProductToolbarIcon kind="graph" />
-          </button>
-          <button type="button" className="product-rail-button">
-            <ProductToolbarIcon kind="doc" />
-          </button>
-          <button type="button" className="product-rail-button">
-            <ProductToolbarIcon kind="bookmark" />
-          </button>
-          <button type="button" className="product-rail-button">
-            <ProductToolbarIcon kind="clock" />
-          </button>
-          <button type="button" className="product-rail-button">
-            <ProductToolbarIcon kind="database" />
-          </button>
-          <button type="button" className="product-rail-button product-rail-button--bottom">
-            <ProductToolbarIcon kind="settings" />
-          </button>
-        </nav>
-
         <aside
           ref={assistantRef}
           className={`product-assistant${isAssistantCollapsed ? ' product-assistant--collapsed' : ''}`}
@@ -371,7 +343,7 @@ function ProductPage() {
             <div className="product-assistant-header">
               <div className="product-assistant-title">
                 <ProductToolbarIcon kind="spark" />
-                <strong>Lexi AI Assistant</strong>
+                <strong>LexAI</strong>
               </div>
 
               <span className="product-ready-badge">
@@ -406,8 +378,12 @@ function ProductPage() {
           </div>
         </aside>
 
-        {!showGraph ? <div className="product-workspace-spacer" aria-hidden="true" /> : null}
-
+        {!showGraph ? (
+          <div className="product-workspace-spacer">
+            <ProductForceGraph />
+          </div>
+        ) : null}
+  
         {showGraph ? (
           <section className="product-canvas">
             <div className="product-canvas-stage">
