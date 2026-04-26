@@ -11,8 +11,21 @@ const promptIdeas = [
   "Concediere fără preaviz",
 ];
 
+type DummyNode = {
+  id: string;
+  val: number;
+  category: "root" | "article" | "point";
+};
+
+type ForceGraphHandle = {
+  d3Force: ((name: string) => { strength: (s: number) => { distanceMax: (d: number) => void } }) &
+    ((name: string, force: unknown) => void);
+  zoom: (z: number) => void;
+  centerAt: (x: number, y: number) => void;
+};
+
 // Generate a dummy "edge of a large law graph"
-const dummyNodes = Array.from({ length: 150 }, (_, i) => ({
+const dummyNodes: DummyNode[] = Array.from({ length: 150 }, (_, i) => ({
   id: `n${i}`,
   val: i === 0 ? 30 : i < 10 ? 10 : 2,
   category: i === 0 ? "root" : i < 10 ? "article" : "point",
@@ -27,7 +40,7 @@ function HomePage() {
   const [isIntroVisible, setIsIntroVisible] = useState(false);
   const [promptValue, setPromptValue] = useState("");
   const navigate = useNavigate();
-  const graphRef = useRef<any>();
+  const graphRef = useRef<ForceGraphHandle | undefined>(undefined);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -43,7 +56,7 @@ function HomePage() {
       graph.d3Force(
         "collide",
         forceCollide()
-          .radius((n: any) => (n.val || 2) + 2)
+          .radius((n: DummyNode) => (n.val || 2) + 2)
           .iterations(2),
       );
       graph.zoom(1.8);
@@ -101,7 +114,7 @@ function HomePage() {
               height={1200}
               backgroundColor="rgba(0,0,0,0)"
               nodeRelSize={2}
-              nodeColor={(n: any) =>
+              nodeColor={(n: DummyNode) =>
                 n.category === "root"
                   ? "#ffffff"
                   : n.category === "article"
