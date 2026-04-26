@@ -503,6 +503,7 @@ function ProductPage() {
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [isResizingAssistant, setIsResizingAssistant] = useState(false);
   const [hideParagraphs, setHideParagraphs] = useState(false);
+  const [discoveredNodes, setDiscoveredNodes] = useState<any[]>([]);
   const [activeFilters, setActiveFilters] = useState<
     Record<ProductNodeCategory, boolean>
   >({
@@ -627,8 +628,13 @@ function ProductPage() {
   }
 
   const handleSend = useCallback(() => {
+    setDiscoveredNodes([]);
     forceGraphRef.current?.discoverNodes();
     setPromptValue("");
+  }, []);
+
+  const handleNodesDiscovered = useCallback((nodes: any[]) => {
+    setDiscoveredNodes(nodes);
   }, []);
 
   function resetView() {
@@ -703,15 +709,34 @@ function ProductPage() {
             </div>
 
             <div className="product-assistant-scroll">
-              <div className="product-chat-empty-state" aria-live="polite">
-                <div className="product-chat-empty-icon ">
-                  <ProductToolbarIcon kind="spark" />
+              {discoveredNodes.length > 0 ? (
+                <div className="product-discovery-list">
+                  {discoveredNodes.map((node) => (
+                    <article key={node.id} className="product-discovery-banner">
+                      <div className="product-discovery-banner__header">
+                        <span className="product-discovery-banner__badge">
+                          {node.category === 'root' ? '§' : 
+                           node.category === 'article' ? 'Ar' : 
+                           node.category === 'paragraph' ? 'Al' : 
+                           node.category === 'letter' ? 'Lt' : 'Pt'}
+                        </span>
+                        <strong className="product-discovery-banner__title">{node.label}</strong>
+                      </div>
+                      <p className="product-discovery-banner__path">{node.fullLabel}</p>
+                    </article>
+                  ))}
                 </div>
-                <strong>Începe o conversație nouă</strong>
-                <p>· Pune intrebări despre orice concept legal</p>
-                <p>· Cere rezumate sau explicații</p>
-                <p>· Explorează conexiunile din graful de cunoștințe</p>
-              </div>
+              ) : (
+                <div className="product-chat-empty-state" aria-live="polite">
+                  <div className="product-chat-empty-icon ">
+                    <ProductToolbarIcon kind="spark" />
+                  </div>
+                  <strong>Începe o conversație nouă</strong>
+                  <p>· Pune intrebări despre orice concept legal</p>
+                  <p>· Cere rezumate sau explicații</p>
+                  <p>· Explorează conexiunile din graful de cunoștințe</p>
+                </div>
+              )}
             </div>
 
             <div className="product-composer">
@@ -741,7 +766,11 @@ function ProductPage() {
 
         {!showGraph ? (
           <div className="product-workspace-spacer">
-            <ProductForceGraph ref={forceGraphRef} hideParagraphs={hideParagraphs} />
+            <ProductForceGraph 
+              ref={forceGraphRef} 
+              hideParagraphs={hideParagraphs} 
+              onNodesDiscovered={handleNodesDiscovered}
+            />
           </div>
         ) : null}
 

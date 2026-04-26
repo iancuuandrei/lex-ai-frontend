@@ -128,9 +128,10 @@ export interface ProductForceGraphHandle {
 
 interface ProductForceGraphProps {
   hideParagraphs?: boolean
+  onNodesDiscovered?: (nodes: GraphNode[]) => void
 }
 
-const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphProps>(function ProductForceGraph({ hideParagraphs = false }, ref) {
+const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphProps>(function ProductForceGraph({ hideParagraphs = false, onNodesDiscovered }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink>>(undefined!)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -167,47 +168,62 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     }
   }, [])
 
-  const flyToNode = useCallback((targetNode: GraphNode) => {
-    const graph = graphRef.current
-    if (!graph || typeof targetNode.x !== 'number' || typeof targetNode.y !== 'number') return
-
-    const duration = 3000
-    const targetX = targetNode.x
-    const targetY = targetNode.y
-    const targetZoom = 3.2
-    const startZoom = graph.zoom()
-
-    // centerAt() with no args returns the current center in some versions,
-    // but may return the instance itself — fall back to target coords
-    let startX = targetX
-    let startY = targetY
-    try {
-      const c = graph.centerAt() as unknown
-      if (c && typeof c === 'object' && 'x' in c && 'y' in c) {
-        startX = (c as { x: number; y: number }).x
-        startY = (c as { x: number; y: number }).y
+  const flyToNode = useCallback((targetNode: GraphNode, customHighlights?: { nodes: Set<string>, links: Set<string> }, duration = 3000) => {
+    return new Promise<void>((resolve) => {
+      const graph = graphRef.current
+      if (!graph || typeof targetNode.x !== 'number' || typeof targetNode.y !== 'number') {
+        resolve()
+        return
       }
-    } catch { /* use target as fallback */ }
 
-    let startTime: number | null = null
+      const targetX = targetNode.x
+      const targetY = targetNode.y
+      const targetZoom = 3.2
+      const startZoom = graph.zoom()
 
-    function ease(t: number) {
-      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-    }
+      // centerAt() with no args returns the current center in some versions,
+      // but may return the instance itself — fall back to target coords
+      let startX = targetX
+      let startY = targetY
+      try {
+        const c = graph.centerAt() as unknown
+        if (c && typeof c === 'object' && 'x' in c && 'y' in c) {
+          startX = (c as { x: number; y: number }).x
+          startY = (c as { x: number; y: number }).y
+        }
+      } catch { /* use target as fallback */ }
 
-    function step(timestamp: number) {
-      if (startTime === null) startTime = timestamp
-      const elapsed = timestamp - startTime
-      const t = Math.min(elapsed / duration, 1)
-      const e = ease(t)
-      graph!.centerAt(startX + (targetX - startX) * e, startY + (targetY - startY) * e, 0)
-      graph!.zoom(startZoom + (targetZoom - startZoom) * e, 0)
-      if (t < 1) requestAnimationFrame(step)
-    }
+      let startTime: number | null = null
 
-    setHighlightedNodeIds(new Set([targetNode.id]))
-    highlightStartRef.current = performance.now()
-    requestAnimationFrame(step)
+      function ease(t: number) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+      }
+
+      function step(timestamp: number) {
+        if (startTime === null) startTime = timestamp
+        const elapsed = timestamp - startTime
+        const t = Math.min(elapsed / duration, 1)
+        const e = ease(t)
+        graph!.centerAt(startX + (targetX - startX) * e, startY + (targetY - startY) * e, 0)
+        graph!.zoom(startZoom + (targetZoom - startZoom) * e, 0)
+        if (t < 1) {
+          requestAnimationFrame(step)
+        } else {
+          resolve()
+        }
+      }
+
+      if (customHighlights) {
+        setHighlightedNodeIds(customHighlights.nodes)
+        setHighlightedLinkIds(customHighlights.links)
+      } else {
+        setHighlightedNodeIds(new Set([targetNode.id]))
+        setHighlightedLinkIds(new Set())
+      }
+
+      highlightStartRef.current = performance.now()
+      requestAnimationFrame(step)
+    })
   }, [])
 
   const data = useMemo(() => {
@@ -237,13 +253,14 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
       const target = pool[Math.floor(Math.random() * pool.length)]
       flyToNode(target)
     },
-    discoverNodes() {
+    async discoverNodes() {
       const nodes = data.nodes as GraphNode[]
       if (nodes.length === 0) return
 
       // 1. Pick 8 random seed nodes
       const seeds: GraphNode[] = []
-      const pool = [...nodes]
+      const positioned = nodes.filter(n => typeof n.x === 'number' && typeof n.y === 'number')
+      const pool = [...positioned]
       for (let i = 0; i < 8 && pool.length > 0; i++) {
         const idx = Math.floor(Math.random() * pool.length)
         seeds.push(pool.splice(idx, 1)[0])
@@ -269,17 +286,18 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         })
       })
 
-      // 3. Update state to highlight
-      setHighlightedNodeIds(discoveredNodeIds)
-      setHighlightedLinkIds(discoveredLinkIds)
-      highlightStartRef.current = performance.now()
+      if (onNodesDiscovered) onNodesDiscovered(seeds)
 
-      // 4. Optional: fly to the first seed to give some context
-      if (seeds.length > 0) {
-        flyToNode(seeds[0])
+      // 3. Tour Sequence
+      const highlights = { nodes: discoveredNodeIds, links: discoveredLinkIds }
+      for (let i = 0; i < seeds.length; i++) {
+        // Fast move (1s) for subsequent nodes, normal for first
+        await flyToNode(seeds[i], highlights, i === 0 ? 2500 : 1200)
+        // brief pause at each node
+        await new Promise(r => setTimeout(resolve => r(null), 800))
       }
     }
-  }), [flyToNode, data])
+  }), [flyToNode, data, onNodesDiscovered])
 
   useEffect(() => {
     const element = containerRef.current
@@ -371,12 +389,16 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
 
             const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source
             const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target
+            
             const isHighlighted = highlightedLinkIds.has(`${sourceId}-${targetId}-${index}`)
+            // Strong connection if both ends are highlighted
+            const isStrong = highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
 
-            if (isHighlighted) {
+            if (isHighlighted || isStrong) {
               const elapsed = (performance.now() - highlightStartRef.current) / 1000
               const pulse = 0.6 + 0.4 * Math.sin(elapsed * 4)
-              return `rgba(140, 180, 255, ${pulse.toFixed(2)})`
+              const baseOpacity = isStrong ? 0.85 : 0.6
+              return `rgba(140, 180, 255, ${(baseOpacity * pulse).toFixed(2)})`
             }
 
             // Strengthen as we zoom in: opacity goes from ~0.08 up to ~0.32
@@ -386,6 +408,8 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
           linkWidth={(link, index) => {
             const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source
             const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target
+            const isStrong = highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
+            if (isStrong) return 2.8
             return highlightedLinkIds.has(`${sourceId}-${targetId}-${index}`) ? 1.8 : 0.9
           }}
           cooldownTicks={800}
