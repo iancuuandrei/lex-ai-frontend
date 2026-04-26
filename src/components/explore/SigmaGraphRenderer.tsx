@@ -8,9 +8,11 @@ interface Props {
   hiddenDomains: string[];
   selectedNodeId: string | null;
   onNodeSelect: (id: string | null) => void;
+  autoFocusNodeId: string | null;
+  onAutoFocusDone: () => void;
 }
 
-export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeId, onNodeSelect }: Props) {
+export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeId, onNodeSelect, autoFocusNodeId, onAutoFocusDone }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const hoveredNodeRef = useRef<string | null>(null);
@@ -20,10 +22,35 @@ export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeI
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Zoom-level thresholds: camera ratio < threshold means "zoomed in enough"
+    // ratio = 1 is default view, lower = more zoomed in
+    const ZOOM_THRESHOLDS = { 2: 0.7, 3: 0.4 };
+
+    let lastVisibleLevel = 1;
+    let sigmaInstance: Sigma | null = null;
+
+    function getVisibleZoomLevel(ratio: number): number {
+      if (ratio <= ZOOM_THRESHOLDS[3]) return 3;
+      if (ratio <= ZOOM_THRESHOLDS[2]) return 2;
+      return 1;
+    }
+
+    function currentVisibleLevel(): number {
+      if (!sigmaInstance) return 1;
+      return getVisibleZoomLevel(sigmaInstance.getCamera().ratio);
+    }
+
     const sigma = new Sigma(graph, containerRef.current, {
       nodeReducer: (node: string, data: Record<string, unknown>): Partial<NodeDisplayData> => {
         const domain = data.domain as string | undefined;
         if (domain && hiddenDomainsRef.current.includes(domain)) {
+          return { ...data, hidden: true } as Partial<NodeDisplayData>;
+        }
+
+        // Semantic zoom: hide nodes above the current visible zoom level
+        const nodeZoomLevel = (data.zoomLevel as number) ?? 1;
+        const visibleLevel = currentVisibleLevel();
+        if (nodeZoomLevel > visibleLevel) {
           return { ...data, hidden: true } as Partial<NodeDisplayData>;
         }
 
@@ -54,6 +81,14 @@ export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeI
           return { ...data, hidden: true } as Partial<EdgeDisplayData>;
         }
 
+        // Hide edges connected to nodes not visible at current zoom level
+        const visibleLevel = currentVisibleLevel();
+        const srcZoom = (srcAttrs.zoomLevel as number) ?? 1;
+        const tgtZoom = (tgtAttrs.zoomLevel as number) ?? 1;
+        if (srcZoom > visibleLevel || tgtZoom > visibleLevel) {
+          return { ...data, hidden: true } as Partial<EdgeDisplayData>;
+        }
+
         const hovered = hoveredNodeRef.current;
         const selected = selectedNodeRef.current;
 
@@ -69,6 +104,18 @@ export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeI
       },
 
       renderEdgeLabels: false,
+    });
+
+    sigmaInstance = sigma;
+
+    // Schedule a needsRefresh when zoom level crosses a threshold
+    sigma.on('beforeRender', () => {
+      const level = currentVisibleLevel();
+      if (level !== lastVisibleLevel) {
+        lastVisibleLevel = level;
+        // Schedule refresh on next tick to avoid rendering mid-frame
+        requestAnimationFrame(() => sigma.refresh());
+      }
     });
 
     sigma.on('enterNode', ({ node }) => {
@@ -116,6 +163,27 @@ export default function SigmaGraphRenderer({ graph, hiddenDomains, selectedNodeI
 
     sigma.refresh();
   }, [selectedNodeId, graph]);
+
+  // Auto-focus: animated reset → pan to node → zoom deep in
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    if (!sigma || !autoFocusNodeId || !graph.hasNode(autoFocusNodeId)) return;
+
+    const { x, y } = graph.getNodeAttributes(autoFocusNodeId) as { x: number; y: number };
+    const camera = sigma.getCamera();
+
+    // Step 1: reset to overview
+    camera.animate({ x: 0.5, y: 0.5, ratio: 1, angle: 0 }, { duration: 600 }).then(() => {
+      // Step 2: pan to the node
+      return camera.animate({ x, y, ratio: 1 }, { duration: 800 });
+    }).then(() => {
+      // Step 3: zoom all the way in
+      return camera.animate({ x, y, ratio: 0.15 }, { duration: 1000 });
+    }).then(() => {
+      onNodeSelect(autoFocusNodeId);
+      onAutoFocusDone();
+    });
+  }, [autoFocusNodeId, graph, onNodeSelect, onAutoFocusDone]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }

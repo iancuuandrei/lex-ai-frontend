@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, type FormEvent } from 'react';
+import { useMemo, useState, useCallback, useRef, type FormEvent } from 'react';
 import Graph from 'graphology';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import SigmaGraphRenderer from '../components/explore/SigmaGraphRenderer';
@@ -13,36 +13,40 @@ const DOMAIN_CONFIG: Record<string, { color: string; label: string }> = {
 function buildGraph(): Graph {
   const g = new Graph({ multi: false, type: 'undirected' });
 
-  const nodes: { id: string; label: string; domain: string }[] = [
-    { id: 'n1',  label: 'Codul Muncii',               domain: 'Muncă' },
-    { id: 'n2',  label: 'Contract Individual',         domain: 'Muncă' },
-    { id: 'n3',  label: 'Concediere Colectivă',        domain: 'Muncă' },
-    { id: 'n4',  label: 'Sindicat',                    domain: 'Muncă' },
-    { id: 'n5',  label: 'Salariu Minim',               domain: 'Muncă' },
-    { id: 'n6',  label: 'Codul Civil',                 domain: 'Civil' },
-    { id: 'n7',  label: 'Contract de Vânzare',         domain: 'Civil' },
-    { id: 'n8',  label: 'Răspundere Civilă',           domain: 'Civil' },
-    { id: 'n9',  label: 'Drept de Proprietate',        domain: 'Civil' },
-    { id: 'n10', label: 'Succesiune',                  domain: 'Civil' },
-    { id: 'n11', label: 'Codul Penal',                 domain: 'Penal' },
-    { id: 'n12', label: 'Infracțiuni Contra Persoanei', domain: 'Penal' },
-    { id: 'n13', label: 'Recidivă',                    domain: 'Penal' },
-    { id: 'n14', label: 'Tentativă',                   domain: 'Penal' },
-    { id: 'n15', label: 'Codul Fiscal',                domain: 'Fiscal' },
-    { id: 'n16', label: 'TVA',                         domain: 'Fiscal' },
-    { id: 'n17', label: 'Impozit pe Profit',           domain: 'Fiscal' },
-    { id: 'n18', label: 'Executare Silită',            domain: 'Fiscal' },
+  // zoomLevel: 1 = codes (always visible), 2 = main concepts (medium zoom), 3 = details (close zoom)
+  const nodes: { id: string; label: string; domain: string; zoomLevel: number }[] = [
+    { id: 'n1',  label: 'Codul Muncii',               domain: 'Muncă',  zoomLevel: 1 },
+    { id: 'n2',  label: 'Contract Individual',         domain: 'Muncă',  zoomLevel: 2 },
+    { id: 'n3',  label: 'Concediere Colectivă',        domain: 'Muncă',  zoomLevel: 2 },
+    { id: 'n4',  label: 'Sindicat',                    domain: 'Muncă',  zoomLevel: 3 },
+    { id: 'n5',  label: 'Salariu Minim',               domain: 'Muncă',  zoomLevel: 3 },
+    { id: 'n6',  label: 'Codul Civil',                 domain: 'Civil',  zoomLevel: 1 },
+    { id: 'n7',  label: 'Contract de Vânzare',         domain: 'Civil',  zoomLevel: 2 },
+    { id: 'n8',  label: 'Răspundere Civilă',           domain: 'Civil',  zoomLevel: 2 },
+    { id: 'n9',  label: 'Drept de Proprietate',        domain: 'Civil',  zoomLevel: 3 },
+    { id: 'n10', label: 'Succesiune',                  domain: 'Civil',  zoomLevel: 3 },
+    { id: 'n11', label: 'Codul Penal',                 domain: 'Penal',  zoomLevel: 1 },
+    { id: 'n12', label: 'Infracțiuni Contra Persoanei', domain: 'Penal', zoomLevel: 2 },
+    { id: 'n13', label: 'Recidivă',                    domain: 'Penal',  zoomLevel: 3 },
+    { id: 'n14', label: 'Tentativă',                   domain: 'Penal',  zoomLevel: 3 },
+    { id: 'n15', label: 'Codul Fiscal',                domain: 'Fiscal', zoomLevel: 1 },
+    { id: 'n16', label: 'TVA',                         domain: 'Fiscal', zoomLevel: 2 },
+    { id: 'n17', label: 'Impozit pe Profit',           domain: 'Fiscal', zoomLevel: 2 },
+    { id: 'n18', label: 'Executare Silită',            domain: 'Fiscal', zoomLevel: 3 },
   ];
 
-  nodes.forEach(({ id, label, domain }, i) => {
+  nodes.forEach(({ id, label, domain, zoomLevel }, i) => {
     const angle = (i / nodes.length) * 2 * Math.PI;
+    const radius = 100;
+    const size = zoomLevel === 1 ? 12 : zoomLevel === 2 ? 8 : 5;
     g.addNode(id, {
       label,
       domain,
+      zoomLevel,
       color: DOMAIN_CONFIG[domain]?.color ?? '#888',
-      size: 8,
-      x: Math.cos(angle),
-      y: Math.sin(angle),
+      size,
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
     });
   });
 
@@ -61,9 +65,15 @@ function buildGraph(): Graph {
     if (g.hasNode(s) && g.hasNode(t)) g.addEdge(s, t, { color: '#555', size: 1.5 });
   });
 
+  const inferred = forceAtlas2.inferSettings(g);
   forceAtlas2.assign(g, {
-    iterations: 100,
-    settings: forceAtlas2.inferSettings(g),
+    iterations: 200,
+    settings: {
+      ...inferred,
+      scalingRatio: (inferred.scalingRatio ?? 1) * 2,
+      gravity: 0.5,
+      barnesHutOptimize: true,
+    },
   });
 
   return g;
@@ -145,6 +155,9 @@ function GraphPage() {
 
   const [hiddenDomains, setHiddenDomains] = useState<string[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [autoFocusNodeId, setAutoFocusNodeId] = useState<string | null>(null);
+
+  const handleAutoFocusDone = useCallback(() => setAutoFocusNodeId(null), []);
 
   const selectedAttrs = selectedNodeId ? graph.getNodeAttributes(selectedNodeId) : null;
 
@@ -165,6 +178,13 @@ function GraphPage() {
       <div className="graph-toolbar info-card">
         <SearchBar graph={graph} onSelect={setSelectedNodeId} />
         <DomainFilterBar hiddenDomains={hiddenDomains} onToggle={toggleDomain} />
+        <button
+          className="graph-auto-focus-btn"
+          disabled={autoFocusNodeId !== null}
+          onClick={() => setAutoFocusNodeId('n6')}
+        >
+          {autoFocusNodeId ? 'Focusing…' : 'Auto-focus: Codul Civil'}
+        </button>
       </div>
 
       <div className="graph-workspace">
@@ -174,6 +194,8 @@ function GraphPage() {
             hiddenDomains={hiddenDomains}
             selectedNodeId={selectedNodeId}
             onNodeSelect={setSelectedNodeId}
+            autoFocusNodeId={autoFocusNodeId}
+            onAutoFocusDone={handleAutoFocusDone}
           />
         </div>
 

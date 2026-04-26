@@ -5,8 +5,10 @@ interface PromptComposerProps {
   promptIdeas: string[]
   value: string
   onChange: (value: string) => void
+  onSend?: () => void
   ariaLabel: string
   className?: string
+  toolbarExtra?: React.ReactNode
 }
 
 function ArrowUpIcon() {
@@ -28,8 +30,10 @@ export default function PromptComposer({
   promptIdeas,
   value,
   onChange,
+  onSend,
   ariaLabel,
   className = '',
+  toolbarExtra,
 }: PromptComposerProps) {
   const [ideaIndex, setIdeaIndex] = useState(0)
   const [typedIdea, setTypedIdea] = useState('')
@@ -75,6 +79,12 @@ export default function PromptComposer({
               className="prompt-card__input"
               value={value}
               onChange={(event) => onChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  if (onSend && value.trim().length > 0) onSend()
+                }
+              }}
               rows={2}
               aria-label={ariaLabel}
             />
@@ -95,11 +105,15 @@ export default function PromptComposer({
         </div>
 
         <div className="prompt-card__toolbar">
+          {toolbarExtra}
           <button
             className="prompt-icon-button prompt-icon-button-primary"
             type="button"
             aria-label="Send prompt"
-            disabled={value.trim().length === 0}
+            disabled={!onSend && value.trim().length === 0}
+            onClick={() => {
+              if (onSend) onSend()
+            }}
           >
             <ArrowUpIcon />
           </button>

@@ -416,10 +416,10 @@ export default function ProductBackgroundCanvas() {
             willChange: 'transform',
             backgroundColor: '#05070b',
             backgroundImage: `
-              linear-gradient(rgba(112, 145, 201, 0.34) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(112, 145, 201, 0.34) 1px, transparent 1px),
-              linear-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255, 255, 255, 0.09) 1px, transparent 1px)
+              linear-gradient(rgba(112, 145, 201, 0.16) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(112, 145, 201, 0.16) 1px, transparent 1px),
+              linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px)
             `,
             backgroundSize: `${GRID_MAJOR_SIZE}px ${GRID_MAJOR_SIZE}px, ${GRID_MAJOR_SIZE}px ${GRID_MAJOR_SIZE}px, ${GRID_MINOR_SIZE}px ${GRID_MINOR_SIZE}px, ${GRID_MINOR_SIZE}px ${GRID_MINOR_SIZE}px`,
             backgroundPosition: '-1px -1px, -1px -1px, -1px -1px, -1px -1px',
