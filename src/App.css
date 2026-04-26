@@ -3877,6 +3877,245 @@
   }
 }
 
+.assistant-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.assistant-textarea {
+  width: 100%;
+  font: inherit;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  resize: vertical;
+}
+
+.assistant-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.assistant-btn {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.assistant-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.assistant-btn--primary {
+  background: #1f2937;
+  color: #fff;
+}
+
+.assistant-btn--secondary {
+  background: transparent;
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.assistant-error {
+  border: 1px solid rgba(220, 38, 38, 0.4);
+}
+
+.assistant-short-answer {
+  white-space: pre-wrap;
+}
+
+.assistant-refusal {
+  color: #92400e;
+}
+
+.assistant-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin-top: 0.75rem;
+}
+
+.assistant-meta dt {
+  font-weight: 600;
+}
+
+.assistant-meta dd {
+  margin: 0;
+}
+
+.assistant-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.assistant-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.assistant-citation-card,
+.assistant-evidence-card {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.assistant-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.assistant-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.08);
+  color: #1f2937;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.assistant-badge--verified {
+  background: rgba(16, 185, 129, 0.18);
+  color: #065f46;
+}
+
+.assistant-badge--warning {
+  background: rgba(220, 38, 38, 0.16);
+  color: #991b1b;
+}
+
+.assistant-legal-text {
+  margin: 0.25rem 0;
+  padding: 0.6rem 0.8rem;
+  border-left: 3px solid rgba(31, 41, 55, 0.4);
+  background: rgba(0, 0, 0, 0.04);
+  font-family: 'Georgia', 'Times New Roman', serif;
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.assistant-empty {
+  margin: 0;
+  font-style: italic;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.assistant-why-selected {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.assistant-verifier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.assistant-verifier-stat {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.assistant-verifier-stat dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.assistant-verifier-stat dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-status-banner {
+  border-radius: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+}
+
+.assistant-status-banner--danger {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #991b1b;
+}
+
+.assistant-status-banner--info {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #1e40af;
+}
+
+.assistant-warning-panel h3 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.assistant-warning-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.assistant-debug-panel {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.assistant-debug-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.assistant-debug-json {
+  margin: 0.5rem 0 0;
+  max-height: 400px;
+  overflow: auto;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.3rem;
+}
+
 /* ── New Landing Page ───────────────────────── */
 
 .landing-page {
