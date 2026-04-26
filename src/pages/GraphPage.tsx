@@ -18,6 +18,17 @@ type GraphNodeData = {
   zoomLevel: number;
 };
 
+function isGraphNodeData(value: unknown): value is GraphNodeData {
+  if (!value || typeof value !== 'object') return false;
+  const node = value as Partial<GraphNodeData>;
+  return (
+    typeof node.id === 'string' &&
+    typeof node.label === 'string' &&
+    typeof node.domain === 'string' &&
+    typeof node.zoomLevel === 'number'
+  );
+}
+
 function buildGraphFromData(data: { nodes: GraphNodeData[], edges: string[][] }): Graph {
   const g = new Graph({ multi: false, type: 'undirected' });
 
@@ -132,7 +143,10 @@ function GraphPage() {
 
   useEffect(() => {
     getExploreGraph().then(data => {
-      setGraph(buildGraphFromData(data));
+      setGraph(buildGraphFromData({
+        nodes: data.nodes.filter(isGraphNodeData),
+        edges: data.edges,
+      }));
     });
   }, []);
 

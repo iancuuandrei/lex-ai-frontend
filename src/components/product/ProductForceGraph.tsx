@@ -1,8 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { forceCollide } from 'd3-force-3d'
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d'
-import legalEdgesRaw from '../../assets/legal_edges.json'
-import legalUnitsRaw from '../../assets/legal_units.json'
 import type {
   GraphEdge as BackendGraphEdge,
   GraphNode as BackendGraphNode,
@@ -117,32 +115,59 @@ function fullLabel(unit: LegalUnit, category: LegalCategory): string {
   return parts.length > 0 ? parts.join(' · ') : `${category}: ${unit.id}`
 }
 
-const legalUnits = legalUnitsRaw as LegalUnit[]
-const legalEdges = legalEdgesRaw as LegalEdge[]
+interface LocalGraphData {
+  nodes: GraphNode[]
+  links: GraphLink[]
+}
 
-const unitIds = new Set(legalUnits.map((unit) => unit.id))
+let localGraphData: LocalGraphData | null = null
+let localGraphDataPromise: Promise<LocalGraphData> | null = null
 
-const graphNodes: GraphNode[] = legalUnits.map((unit) => {
-  const category = categorize(unit)
-  const text = (unit.normalized_text ?? unit.raw_text ?? '').slice(0, 320)
-  return {
-    id: unit.id,
-    label: shortLabel(unit, category),
-    fullLabel: fullLabel(unit, category),
-    text,
-    category,
-    val: categorySize[category],
-  }
-})
+function buildLocalGraphData(legalUnits: LegalUnit[], legalEdges: LegalEdge[]): LocalGraphData {
+  const unitIds = new Set(legalUnits.map((unit) => unit.id))
+  const nodes: GraphNode[] = legalUnits.map((unit) => {
+    const category = categorize(unit)
+    const text = (unit.normalized_text ?? unit.raw_text ?? '').slice(0, 320)
+    return {
+      id: unit.id,
+      label: shortLabel(unit, category),
+      fullLabel: fullLabel(unit, category),
+      text,
+      category,
+      val: categorySize[category],
+    }
+  })
 
-const graphLinks: GraphLink[] = legalEdges
-  .filter((edge) => unitIds.has(edge.source_id) && unitIds.has(edge.target_id))
-  .map((edge, index) => ({
-    id: `${edge.source_id}-${edge.target_id}-${index}`,
-    source: edge.source_id,
-    target: edge.target_id,
-    edgeType: edge.type,
-  }))
+  const links: GraphLink[] = legalEdges
+    .filter((edge) => unitIds.has(edge.source_id) && unitIds.has(edge.target_id))
+    .map((edge, index) => ({
+      id: `${edge.source_id}-${edge.target_id}-${index}`,
+      source: edge.source_id,
+      target: edge.target_id,
+      edgeType: edge.type,
+    }))
+
+  return { nodes, links }
+}
+
+function loadLocalGraphData() {
+  if (localGraphData) return Promise.resolve(localGraphData)
+
+  localGraphDataPromise ??= Promise.all([
+    import('../../assets/legal_units.json'),
+    import('../../assets/legal_edges.json'),
+  ]).then(([legalUnitsModule, legalEdgesModule]) => {
+    localGraphData = buildLocalGraphData(
+      legalUnitsModule.default as LegalUnit[],
+      legalEdgesModule.default as LegalEdge[],
+    )
+    return localGraphData
+  })
+
+  return localGraphDataPromise
+}
+
+const EMPTY_GRAPH_DATA: LocalGraphData = { nodes: [], links: [] }
 
 function getMetadataString(metadata: Record<string, unknown> | null | undefined, key: string) {
   const value = metadata?.[key]
@@ -271,6 +296,7 @@ interface ProductForceGraphProps {
   queryGraph?: QueryGraphResponse | null
   highlightedNodeIds?: string[]
   highlightedEdgeIds?: string[]
+  disableLocalFallback?: boolean
 }
 
 const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphProps>(function ProductForceGraph({
@@ -279,6 +305,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   queryGraph = null,
   highlightedNodeIds: highlightedNodeIdsProp,
   highlightedEdgeIds: highlightedEdgeIdsProp,
+  disableLocalFallback = false,
 }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const graphRef = useRef<ForceGraphMethods<RenderNode, RenderLink>>(undefined!)
@@ -289,6 +316,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   const [bannerVisible, setBannerVisible] = useState(false)
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set())
   const [highlightedLinkIds, setHighlightedLinkIds] = useState<Set<string>>(new Set())
+  const [localGraph, setLocalGraph] = useState<LocalGraphData | null>(null)
   const bannerTimerRef = useRef<number | null>(null)
   const globalScaleRef = useRef(1)
   const highlightStartRef = useRef(0)
@@ -308,6 +336,20 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     () => new Set(queryCitedUnitIds ?? []),
     [queryCitedUnitIds],
   )
+  const isLocalFallbackDisabled = disableLocalFallback && !queryGraph
+
+  useEffect(() => {
+    if (queryGraph || isLocalFallbackDisabled || localGraph) return
+
+    let cancelled = false
+    void loadLocalGraphData().then((nextLocalGraph) => {
+      if (!cancelled) setLocalGraph(nextLocalGraph)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isLocalFallbackDisabled, localGraph, queryGraph])
 
   const handleNodeHover = useCallback((node: NodeObject | null) => {
     if (bannerTimerRef.current) {
@@ -395,15 +437,20 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
   }, [])
 
   const data = useMemo(() => {
+    if (isLocalFallbackDisabled) return EMPTY_GRAPH_DATA
+    if (!queryGraph && !localGraph) return EMPTY_GRAPH_DATA
+
+    const fallbackGraph = localGraph ?? EMPTY_GRAPH_DATA
+
     const baseNodes = queryGraph
       ? queryGraph.graph.nodes.map(mapBackendNode)
-      : graphNodes
+      : fallbackGraph.nodes
     const baseNodeIds = new Set(baseNodes.map((node) => node.id))
     const baseLinks = queryGraph
       ? queryGraph.graph.edges
           .map(mapBackendEdge)
           .filter((edge) => baseNodeIds.has(edge.source) && baseNodeIds.has(edge.target))
-      : graphLinks
+      : fallbackGraph.links
 
     if (!hideParagraphs) return { nodes: baseNodes, links: baseLinks }
 
@@ -422,7 +469,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
         return filteredIds.has(sourceId) && filteredIds.has(targetId)
       }),
     }
-  }, [backendHighlightedNodeIds, citedNodeIds, hideParagraphs, queryGraph])
+  }, [backendHighlightedNodeIds, citedNodeIds, hideParagraphs, isLocalFallbackDisabled, localGraph, queryGraph])
 
   useEffect(() => {
     if (!queryGraph) return
@@ -691,7 +738,7 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     if (size.width > 0 && size.height > 0) {
       graph.d3ReheatSimulation()
     }
-  }, [queryGraph, size.width, size.height])
+  }, [data, queryGraph, size.width, size.height])
 
   useEffect(() => {
     // Safety fallback: if the engine doesn't stop or tick for some reason, 
@@ -699,6 +746,16 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
     const timer = setTimeout(() => setIsGraphReady(true), 3500)
     return () => clearTimeout(timer)
   }, [])
+
+  if (isLocalFallbackDisabled) {
+    return (
+      <div ref={containerRef} className="product-force-graph product-force-graph--empty">
+        <div className="product-force-graph-empty-state">
+          Graful juridic va apărea după ce backend-ul returnează un query graph.
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef} className="product-force-graph">
@@ -764,10 +821,10 @@ const ProductForceGraph = forwardRef<ProductForceGraphHandle, ProductForceGraphP
             if (isEvidenceEdgeType(edgeType)) return 2.6
             return edgeType === 'contains' ? 1.2 : 1.8
           }}
-          cooldownTicks={Infinity}
-          warmupTicks={400}
-          d3AlphaDecay={0.002}
-          d3VelocityDecay={0.3}
+          cooldownTicks={160}
+          warmupTicks={80}
+          d3AlphaDecay={0.015}
+          d3VelocityDecay={0.42}
           enableNodeDrag={false}
           nodeCanvasObjectMode={() => 'replace'}
           nodeCanvasObject={(node, ctx, globalScale) => {

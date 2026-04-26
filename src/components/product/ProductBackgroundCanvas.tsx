@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, useMotionValue } from 'framer-motion'
 
 const WORLD_SIZE = 20000
@@ -68,6 +68,12 @@ function isLikelyTrackpad(event: WheelLikeEvent) {
   return Math.abs(event.deltaX) > 0 || Math.abs(event.deltaY) < 24
 }
 
+function prefersReducedMotion() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 export default function ProductBackgroundCanvas() {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<ViewportState>({
@@ -79,13 +85,65 @@ export default function ProductBackgroundCanvas() {
   const gestureRef = useRef<GestureState>(null)
   const nativePinchRef = useRef<{ startScale: number; anchorPoint: CanvasPoint } | null>(null)
   const hasInitializedRef = useRef(false)
+  const pendingHoverWorldPointRef = useRef<CanvasPoint | null>(null)
+  const hoverAnimationFrameRef = useRef<number | null>(null)
   const [surfaceSize, setSurfaceSize] = useState<SurfaceSize>({ width: 0, height: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [hoverWorldPoint, setHoverWorldPoint] = useState<CanvasPoint | null>(null)
   const [zoomReadout, setZoomReadout] = useState(INITIAL_SCALE)
+  const [isReducedMotion] = useState(prefersReducedMotion)
   const x = useMotionValue(0)
   const y = useMotionValue(0)
   const scale = useMotionValue(INITIAL_SCALE)
+
+  const screenToWorld = useCallback((point: CanvasPoint, viewport = viewportRef.current) => {
+    return {
+      x: (point.x - viewport.x) / viewport.scale,
+      y: (point.y - viewport.y) / viewport.scale,
+    }
+  }, [])
+
+  const clampViewport = useCallback((nextViewport: ViewportState): ViewportState => {
+    const nextScale = clamp(nextViewport.scale, MIN_SCALE, MAX_SCALE)
+    const scaledWorldWidth = WORLD_SIZE * nextScale
+    const scaledWorldHeight = WORLD_SIZE * nextScale
+
+    const nextX = scaledWorldWidth <= surfaceSize.width
+      ? (surfaceSize.width - scaledWorldWidth) / 2
+      : clamp(nextViewport.x, surfaceSize.width - scaledWorldWidth - EDGE_PADDING, EDGE_PADDING)
+
+    const nextY = scaledWorldHeight <= surfaceSize.height
+      ? (surfaceSize.height - scaledWorldHeight) / 2
+      : clamp(nextViewport.y, surfaceSize.height - scaledWorldHeight - EDGE_PADDING, EDGE_PADDING)
+
+    return {
+      x: nextX,
+      y: nextY,
+      scale: nextScale,
+    }
+  }, [surfaceSize.height, surfaceSize.width])
+
+  const applyViewport = useCallback((nextViewport: ViewportState) => {
+    const clampedViewport = clampViewport(nextViewport)
+
+    viewportRef.current = clampedViewport
+    x.set(clampedViewport.x)
+    y.set(clampedViewport.y)
+    scale.set(clampedViewport.scale)
+    setZoomReadout(clampedViewport.scale)
+  }, [clampViewport, scale, x, y])
+
+  const zoomAtPoint = useCallback((nextScale: number, point: CanvasPoint) => {
+    const currentViewport = viewportRef.current
+    const anchorWorld = screenToWorld(point, currentViewport)
+    const clampedScale = clamp(nextScale, MIN_SCALE, MAX_SCALE)
+
+    applyViewport({
+      scale: clampedScale,
+      x: point.x - anchorWorld.x * clampedScale,
+      y: point.y - anchorWorld.y * clampedScale,
+    })
+  }, [applyViewport, screenToWorld])
 
   useEffect(() => {
     const element = surfaceRef.current
@@ -105,6 +163,14 @@ export default function ProductBackgroundCanvas() {
   }, [])
 
   useEffect(() => {
+    return () => {
+      if (hoverAnimationFrameRef.current != null) {
+        window.cancelAnimationFrame(hoverAnimationFrameRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     if (surfaceSize.width === 0 || surfaceSize.height === 0) return
 
     if (!hasInitializedRef.current) {
@@ -120,7 +186,7 @@ export default function ProductBackgroundCanvas() {
     }
 
     applyViewport(viewportRef.current)
-  }, [surfaceSize])
+  }, [applyViewport, surfaceSize.height, surfaceSize.width])
 
   useEffect(() => {
     const element = surfaceRef.current
@@ -196,54 +262,26 @@ export default function ProductBackgroundCanvas() {
       surfaceElement.removeEventListener('gesturechange', handleGestureChange as EventListener)
       surfaceElement.removeEventListener('gestureend', handleGestureEnd as EventListener)
     }
-  }, [surfaceSize])
+  }, [applyViewport, surfaceSize.height, surfaceSize.width, zoomAtPoint])
 
-  function screenToWorld(point: CanvasPoint, viewport = viewportRef.current) {
-    return {
-      x: (point.x - viewport.x) / viewport.scale,
-      y: (point.y - viewport.y) / viewport.scale,
+  function scheduleHoverWorldPoint(point: CanvasPoint | null) {
+    if (isReducedMotion) {
+      pendingHoverWorldPointRef.current = null
+      if (hoverAnimationFrameRef.current != null) {
+        window.cancelAnimationFrame(hoverAnimationFrameRef.current)
+        hoverAnimationFrameRef.current = null
+      }
+      setHoverWorldPoint(null)
+      return
     }
-  }
 
-  function clampViewport(nextViewport: ViewportState): ViewportState {
-    const nextScale = clamp(nextViewport.scale, MIN_SCALE, MAX_SCALE)
-    const scaledWorldWidth = WORLD_SIZE * nextScale
-    const scaledWorldHeight = WORLD_SIZE * nextScale
+    pendingHoverWorldPointRef.current = point
 
-    const nextX = scaledWorldWidth <= surfaceSize.width
-      ? (surfaceSize.width - scaledWorldWidth) / 2
-      : clamp(nextViewport.x, surfaceSize.width - scaledWorldWidth - EDGE_PADDING, EDGE_PADDING)
+    if (hoverAnimationFrameRef.current != null) return
 
-    const nextY = scaledWorldHeight <= surfaceSize.height
-      ? (surfaceSize.height - scaledWorldHeight) / 2
-      : clamp(nextViewport.y, surfaceSize.height - scaledWorldHeight - EDGE_PADDING, EDGE_PADDING)
-
-    return {
-      x: nextX,
-      y: nextY,
-      scale: nextScale,
-    }
-  }
-
-  function applyViewport(nextViewport: ViewportState) {
-    const clampedViewport = clampViewport(nextViewport)
-
-    viewportRef.current = clampedViewport
-    x.set(clampedViewport.x)
-    y.set(clampedViewport.y)
-    scale.set(clampedViewport.scale)
-    setZoomReadout(clampedViewport.scale)
-  }
-
-  function zoomAtPoint(nextScale: number, point: CanvasPoint) {
-    const currentViewport = viewportRef.current
-    const anchorWorld = screenToWorld(point, currentViewport)
-    const clampedScale = clamp(nextScale, MIN_SCALE, MAX_SCALE)
-
-    applyViewport({
-      scale: clampedScale,
-      x: point.x - anchorWorld.x * clampedScale,
-      y: point.y - anchorWorld.y * clampedScale,
+    hoverAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      hoverAnimationFrameRef.current = null
+      setHoverWorldPoint(pendingHoverWorldPointRef.current)
     })
   }
 
@@ -292,7 +330,7 @@ export default function ProductBackgroundCanvas() {
     }
 
     if (event.pointerType !== 'touch') {
-      setHoverWorldPoint(screenToWorld(localPoint))
+      scheduleHoverWorldPoint(screenToWorld(localPoint))
     }
 
     if (!pointersRef.current.has(event.pointerId)) return
@@ -372,11 +410,12 @@ export default function ProductBackgroundCanvas() {
   }
 
   function handlePointerLeave() {
-    setHoverWorldPoint(null)
+    scheduleHoverWorldPoint(null)
   }
 
-  const hoverMask = hoverWorldPoint
-    ? `radial-gradient(circle ${HOVER_EFFECT_RADIUS}px at ${hoverWorldPoint.x}px ${hoverWorldPoint.y}px, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.88) 38%, transparent 100%)`
+  const activeHoverWorldPoint = isReducedMotion ? null : hoverWorldPoint
+  const hoverMask = activeHoverWorldPoint
+    ? `radial-gradient(circle ${HOVER_EFFECT_RADIUS}px at ${activeHoverWorldPoint.x}px ${activeHoverWorldPoint.y}px, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.88) 38%, transparent 100%)`
     : 'radial-gradient(circle 0px at 0 0, transparent 0%, transparent 100%)'
 
   return (
@@ -432,7 +471,7 @@ export default function ProductBackgroundCanvas() {
             y,
             scale,
             willChange: 'transform, opacity',
-            opacity: hoverWorldPoint ? 1 : 0,
+            opacity: activeHoverWorldPoint ? 1 : 0,
             backgroundImage: `
               linear-gradient(rgba(152, 107, 255, 0.72) 1px, transparent 1px),
               linear-gradient(90deg, rgba(65, 104, 255, 0.72) 1px, transparent 1px),

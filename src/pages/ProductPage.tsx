@@ -17,8 +17,15 @@ import ProductKnowledgeGraph, {
   type ProductGraphNode,
   type ProductNodeCategory,
 } from "../components/product/ProductKnowledgeGraph";
+import { useSearchParams } from "react-router-dom";
 import { getQueryGraph, postQuery, getProductGraph } from "../lib/api";
-import type { Citation, EvidenceUnit, QueryGraphResponse, QueryResponse } from "../types/lexai";
+import type {
+  Citation,
+  EvidenceUnit,
+  QueryGraphResponse,
+  QueryResponse,
+  VerifierPayload,
+} from "../types/lexai";
 
 const productFilters: Array<{ key: ProductNodeCategory; label: string }> = [
   { key: "case", label: "Cases" },
@@ -30,7 +37,9 @@ const productFilters: Array<{ key: ProductNodeCategory; label: string }> = [
 const productPromptIdeas = [
   "Poate angajatorul să-mi scadă salariul fără act adițional?",
   "Cum contest o amendă contravențională?",
-  "În cât timp se prescrie dreptul la acțiune pentru o datorie civilă?",
+  "Ce drepturi am dacă lucrez ore suplimentare?",
+  "Când poate fi modificat contractul individual de muncă?",
+  "Ce se întâmplă dacă circul fără ITP valabil?",
 ];
 
 const queryPipelineSteps = [
@@ -58,21 +67,334 @@ function citationLabel(citation: Citation, index: number) {
   );
 }
 
-function citationDetail(citation: Citation) {
-  const location = [
-    citation.article != null ? `art. ${citation.article}` : null,
-    citation.paragraph != null ? `alin. ${citation.paragraph}` : null,
-  ].filter((part): part is string => part != null);
-
-  return citation.excerpt ?? citation.raw_text ?? location.join(", ");
-}
-
 function evidenceLabel(unit: EvidenceUnit, index: number) {
   return unit.label ?? unit.title ?? unit.source ?? unit.unit_id ?? unit.id ?? `Evidence ${index + 1}`;
 }
 
-function evidenceText(unit: EvidenceUnit) {
-  return unit.raw_text ?? unit.excerpt ?? "Backend response did not include raw_text or excerpt for this evidence unit.";
+function compactText(parts: Array<string | null | undefined>) {
+  return parts.filter((part): part is string => Boolean(part && part.trim().length > 0));
+}
+
+function getRecordString(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null) return null;
+
+  const field = (value as Record<string, unknown>)[key];
+  if (typeof field === "string" && field.trim().length > 0) return field;
+  if (typeof field === "number") return String(field);
+  return null;
+}
+
+function getCitationText(citation: Citation) {
+  return (
+    citation.excerpt ??
+    citation.quote ??
+    citation.raw_text ??
+    getRecordString(citation, "snippet") ??
+    getRecordString(citation.metadata, "snippet") ??
+    null
+  );
+}
+
+function getCitationUrl(citation: Citation) {
+  return citation.source_url ?? citation.url ?? null;
+}
+
+function getEvidenceLocation(unit: EvidenceUnit) {
+  return compactText([
+    unit.article_number != null ? `art. ${unit.article_number}` : null,
+    unit.paragraph_number != null ? `alin. (${unit.paragraph_number})` : null,
+    unit.letter_number != null ? `lit. ${unit.letter_number})` : null,
+    unit.point_number != null ? `pct. ${unit.point_number}` : null,
+  ]).join(", ");
+}
+
+function getEvidenceText(unit: EvidenceUnit) {
+  return unit.raw_text ?? unit.excerpt ?? null;
+}
+
+function formatScore(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return value.toFixed(3);
+}
+
+function formatGroundedness(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  const pct = value * 100;
+  return `${pct.toFixed(Number.isInteger(pct) ? 0 : 1)}%`;
+}
+
+function CorpusCoverageBadge() {
+  return (
+    <div className="product-corpus-badge" role="note">
+      Corpus demo: legislație selectată. Răspunsurile sunt limitate la unitățile juridice indexate.
+    </div>
+  );
+}
+
+function ProductVerifierPanel({ verifier }: { verifier?: VerifierPayload | null }) {
+  if (!verifier) {
+    return (
+      <article className="product-answer-card product-verifier-card product-verifier-card--warning">
+        <span className="product-section-kicker">Verifier</span>
+        <p>Verifier indisponibil în răspunsul backend.</p>
+      </article>
+    );
+  }
+
+  const groundedness = formatGroundedness(verifier.groundedness_score);
+  const hasDanger = verifier.verifier_passed === false || Boolean(verifier.refusal_reason);
+
+  return (
+    <article className={`product-answer-card product-verifier-card${hasDanger ? " product-verifier-card--danger" : ""}`}>
+      <div className="product-answer-section__header">
+        <span className="product-section-kicker">Verifier</span>
+        {verifier.verifier_passed != null ? (
+          <span className={`product-status-pill${verifier.verifier_passed ? " product-status-pill--ok" : " product-status-pill--danger"}`}>
+            verifier_passed={String(verifier.verifier_passed)}
+          </span>
+        ) : null}
+      </div>
+
+      <strong>{verifier.status ?? "status necunoscut"}</strong>
+
+      {verifier.refusal_reason ? (
+        <div className="product-warning-panel product-warning-panel--danger">
+          <strong>Refusal reason</strong>
+          <p>{verifier.refusal_reason}</p>
+        </div>
+      ) : null}
+
+      <dl className="product-meta-grid">
+        {groundedness ? (
+          <div>
+            <dt>groundedness_score</dt>
+            <dd>{groundedness}</dd>
+          </div>
+        ) : null}
+        {verifier.claims_supported != null ? (
+          <div>
+            <dt>claims_supported</dt>
+            <dd>{verifier.claims_supported}</dd>
+          </div>
+        ) : null}
+        {verifier.claims_unsupported != null ? (
+          <div>
+            <dt>claims_unsupported</dt>
+            <dd>{verifier.claims_unsupported}</dd>
+          </div>
+        ) : null}
+        {verifier.citations_checked != null ? (
+          <div>
+            <dt>citations_checked</dt>
+            <dd>{verifier.citations_checked}</dd>
+          </div>
+        ) : null}
+      </dl>
+
+      {verifier.summary || verifier.rationale ? (
+        <p>{verifier.summary ?? verifier.rationale}</p>
+      ) : null}
+
+      {verifier.warnings && verifier.warnings.length > 0 ? (
+        <div className="product-warning-panel">
+          <strong>Verifier warnings</strong>
+          <ul className="product-warning-list">
+            {verifier.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ProductCitationCard({ citation, index }: { citation: Citation; index: number }) {
+  const text = getCitationText(citation);
+  const url = getCitationUrl(citation);
+  const unitRefs = compactText([
+    citation.unit_id ? `unit_id: ${citation.unit_id}` : null,
+    citation.legal_unit_id ? `legal_unit_id: ${citation.legal_unit_id}` : null,
+    citation.evidence_unit_id ? `evidence_unit_id: ${citation.evidence_unit_id}` : null,
+  ]);
+
+  return (
+    <article className="product-citation-card">
+      <strong>{citationLabel(citation, index)}</strong>
+
+      {unitRefs.length > 0 ? (
+        <div className="product-meta-line">
+          {unitRefs.map((ref) => (
+            <code key={ref}>{ref}</code>
+          ))}
+        </div>
+      ) : null}
+
+      {text ? (
+        <blockquote className="product-legal-text">{text}</blockquote>
+      ) : (
+        <p className="product-muted-note">
+          Backend-ul nu a inclus excerpt, quote, raw_text sau snippet pentru această citare.
+        </p>
+      )}
+
+      {url ? (
+        <a className="product-source-link" href={url} target="_blank" rel="noreferrer noopener">
+          {url}
+        </a>
+      ) : null}
+    </article>
+  );
+}
+
+function ProductEvidenceCard({ unit, index }: { unit: EvidenceUnit; index: number }) {
+  const text = getEvidenceText(unit);
+  const location = getEvidenceLocation(unit);
+  const retrievalScore = formatScore(unit.retrieval_score);
+  const rerankScore = formatScore(unit.rerank_score);
+
+  return (
+    <article className="product-evidence-card">
+      <div className="product-evidence-card__header">
+        <strong>{evidenceLabel(unit, index)}</strong>
+        {unit.support_role ? <span>{unit.support_role}</span> : null}
+      </div>
+
+      <div className="product-meta-line">
+        <code>id: {unit.id}</code>
+        {unit.unit_id ? <code>unit_id: {unit.unit_id}</code> : null}
+      </div>
+
+      {unit.law_title || location ? (
+        <p className="product-muted-note">
+          {compactText([unit.law_title, location]).join(" · ")}
+        </p>
+      ) : null}
+
+      {retrievalScore || rerankScore ? (
+        <div className="product-meta-line">
+          {retrievalScore ? <code>retrieval_score: {retrievalScore}</code> : null}
+          {rerankScore ? <code>rerank_score: {rerankScore}</code> : null}
+        </div>
+      ) : null}
+
+      {text ? (
+        <blockquote className="product-legal-text">{text}</blockquote>
+      ) : (
+        <p className="product-muted-note">Această evidence unit nu include raw_text sau excerpt.</p>
+      )}
+
+      {unit.why_selected ? (
+        <p className="product-muted-note">
+          <em>{unit.why_selected}</em>
+        </p>
+      ) : null}
+
+      {unit.source_url ? (
+        <a className="product-source-link" href={unit.source_url} target="_blank" rel="noreferrer noopener">
+          {unit.source_url}
+        </a>
+      ) : null}
+    </article>
+  );
+}
+
+function ProductGraphStatus({
+  queryResponse,
+  queryGraph,
+  graphError,
+  isGraphLoading,
+}: {
+  queryResponse: QueryResponse | null;
+  queryGraph: QueryGraphResponse | null;
+  graphError: string | null;
+  isGraphLoading: boolean;
+}) {
+  if (!queryResponse) return null;
+
+  const stateClass = queryGraph
+    ? " product-graph-ready--active"
+    : graphError
+      ? " product-graph-ready--warning"
+      : "";
+  const title = queryGraph
+    ? "Graph ready"
+    : graphError
+      ? "Graph unavailable"
+      : isGraphLoading
+        ? "Graph loading"
+        : "Graph pending";
+  const detail = queryGraph
+    ? `${queryGraph.graph.nodes.length} nodes / ${queryGraph.graph.edges.length} edges`
+    : graphError
+      ? "GET /api/query/{query_id}/graph failed"
+      : "Waiting for /api/query/{query_id}/graph";
+
+  return (
+    <div className={`product-graph-ready${stateClass}`}>
+      <span />
+      <strong>{title}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function ProductDebugDetails({
+  response,
+  queryGraph,
+  graphError,
+}: {
+  response: QueryResponse;
+  queryGraph: QueryGraphResponse | null;
+  graphError: string | null;
+}) {
+  return (
+    <details className="product-debug-details">
+      <summary>Debug backend</summary>
+      <dl className="product-meta-grid">
+        <div>
+          <dt>query_id</dt>
+          <dd>{response.query_id}</dd>
+        </div>
+        <div>
+          <dt>citations</dt>
+          <dd>{response.citations.length}</dd>
+        </div>
+        <div>
+          <dt>evidence_units</dt>
+          <dd>{response.evidence_units.length}</dd>
+        </div>
+        <div>
+          <dt>response warnings</dt>
+          <dd>{response.warnings.length}</dd>
+        </div>
+        {queryGraph ? (
+          <>
+            <div>
+              <dt>graph nodes</dt>
+              <dd>{queryGraph.graph.nodes.length}</dd>
+            </div>
+            <div>
+              <dt>graph edges</dt>
+              <dd>{queryGraph.graph.edges.length}</dd>
+            </div>
+          </>
+        ) : null}
+        {graphError ? (
+          <div>
+            <dt>graph error</dt>
+            <dd>{graphError}</dd>
+          </div>
+        ) : null}
+      </dl>
+
+      {response.debug ? (
+        <pre className="product-debug-json">{JSON.stringify(response.debug, null, 2)}</pre>
+      ) : (
+        <p className="product-muted-note">Debug payload indisponibil în răspunsul backend.</p>
+      )}
+    </details>
+  );
 }
 
 function ProductToolbarIcon({
@@ -231,6 +553,7 @@ function ProductToolbarIcon({
 }
 
 function ProductPage() {
+  const [searchParams] = useSearchParams();
   const showGraph = false;
   const assistantMinWidth = 360;
   const assistantMaxWidth = 900;
@@ -250,8 +573,11 @@ function ProductPage() {
   const assistantResizeStartRef = useRef<{ x: number; width: number } | null>(
     null,
   );
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [promptValue, setPromptValue] = useState("");
+  const [promptValue, setPromptValue] = useState(
+    () => searchParams.get("q")?.trim() || "",
+  );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [assistantWidth, setAssistantWidth] = useState(
@@ -264,7 +590,9 @@ function ProductPage() {
   const [queryResponse, setQueryResponse] = useState<QueryResponse | null>(null);
   const [queryGraph, setQueryGraph] = useState<QueryGraphResponse | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [graphError, setGraphError] = useState<string | null>(null);
   const [isQueryLoading, setIsQueryLoading] = useState(false);
+  const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [activeFilters, setActiveFilters] = useState<
     Record<ProductNodeCategory, boolean>
   >({
@@ -278,10 +606,14 @@ function ProductPage() {
   const [productEdges, setProductEdges] = useState<ProductGraphEdge[]>([]);
 
   useEffect(() => {
-    getProductGraph().then(data => {
-      setProductNodes(data.nodes);
-      setProductEdges(data.edges);
-    });
+    getProductGraph()
+      .then(data => {
+        setProductNodes(data.nodes as ProductGraphNode[]);
+        setProductEdges(data.edges as ProductGraphEdge[]);
+      })
+      .catch(() => {
+        console.warn("Product graph API unavailable, using local fallback");
+      });
   }, []);
 
   const [isHighlightingPoints, setIsHighlightingPoints] = useState(false);
@@ -413,10 +745,14 @@ function ProductPage() {
     queryRequestSeqRef.current = requestSeq;
 
     setIsQueryLoading(true);
+    setIsGraphLoading(false);
     setQueryError(null);
+    setGraphError(null);
     setQueryResponse(null);
     setQueryGraph(null);
     setDiscoveredNodes([]);
+    setIteratingNodes([]);
+    setCurrentIteratingIndex(-1);
     setPromptValue("");
 
     try {
@@ -430,18 +766,28 @@ function ProductPage() {
 
       if (queryRequestSeqRef.current !== requestSeq) return;
       setQueryResponse(response);
+      setIsQueryLoading(false);
+      setIsGraphLoading(true);
 
       try {
         const graphResponse = await getQueryGraph(response.query_id);
         if (queryRequestSeqRef.current !== requestSeq) return;
         setQueryGraph(graphResponse);
+        setGraphError(null);
       } catch (error) {
         if (queryRequestSeqRef.current !== requestSeq) return;
-        setQueryError(`Răspunsul a fost primit, dar graful nu s-a putut încărca: ${getErrorMessage(error)}`);
+        setGraphError(getErrorMessage(error));
+      } finally {
+        if (queryRequestSeqRef.current === requestSeq) {
+          setIsGraphLoading(false);
+        }
       }
     } catch (error) {
       if (queryRequestSeqRef.current !== requestSeq) return;
       setQueryError(getErrorMessage(error));
+      setQueryResponse(null);
+      setQueryGraph(null);
+      setGraphError(null);
     } finally {
       if (queryRequestSeqRef.current === requestSeq) {
         setIsQueryLoading(false);
@@ -520,8 +866,20 @@ function ProductPage() {
 
               <span className="product-ready-badge">
                 <span />
-                {isQueryLoading ? "Running" : queryGraph ? "Graph ready" : "Ready"}
+                {isQueryLoading
+                  ? "Running"
+                  : queryGraph
+                    ? "Graph ready"
+                    : graphError
+                      ? "Graph unavailable"
+                      : isGraphLoading
+                        ? "Graph loading"
+                        : "Ready"}
               </span>
+            </div>
+
+            <div className="product-assistant-notice">
+              <CorpusCoverageBadge />
             </div>
 
             <div className="product-assistant-scroll">
@@ -556,6 +914,13 @@ function ProductPage() {
                     ) : null}
                   </article>
 
+                  {graphError ? (
+                    <div className="product-warning-panel" role="status">
+                      <strong>Răspunsul a fost primit, dar graful nu a putut fi încărcat.</strong>
+                      <p>{graphError}</p>
+                    </div>
+                  ) : null}
+
                   <section className="product-answer-section">
                     <div className="product-answer-section__header">
                       <span className="product-section-kicker">Citations</span>
@@ -564,22 +929,21 @@ function ProductPage() {
                     {queryResponse.citations.length > 0 ? (
                       <div className="product-citation-list">
                         {queryResponse.citations.map((citation, index) => (
-                          <article key={citation.id ?? citation.unit_id ?? index} className="product-citation-card">
-                            <strong>{citationLabel(citation, index)}</strong>
-                            {citationDetail(citation) ? <p>{citationDetail(citation)}</p> : null}
-                          </article>
+                          <ProductCitationCard
+                            key={citation.id ?? citation.unit_id ?? citation.citation_id ?? index}
+                            citation={citation}
+                            index={index}
+                          />
                         ))}
                       </div>
                     ) : (
-                      <p className="product-muted-note">Backend response did not include citations.</p>
+                      <div className="product-empty-warning" role="status">
+                        Backend-ul nu a returnat citări. Răspunsul nu trebuie tratat ca verificat.
+                      </div>
                     )}
                   </section>
 
-                  <article className="product-answer-card">
-                    <span className="product-section-kicker">Verifier</span>
-                    <strong>{queryResponse.verifier?.status ?? "unknown"}</strong>
-                    <p>{queryGraph?.verifier_summary ?? queryResponse.verifier?.summary ?? queryResponse.verifier?.rationale ?? "Backend response did not include a verifier summary."}</p>
-                  </article>
+                  <ProductVerifierPanel verifier={queryResponse.verifier} />
 
                   {queryResponse.warnings.length > 0 ? (
                     <section className="product-answer-section">
@@ -600,29 +964,24 @@ function ProductPage() {
                     {queryResponse.evidence_units.length > 0 ? (
                       <div className="product-evidence-list">
                         {queryResponse.evidence_units.map((unit, index) => (
-                          <article key={unit.id ?? unit.unit_id ?? index} className="product-evidence-card">
-                            <div className="product-evidence-card__header">
-                              <strong>{evidenceLabel(unit, index)}</strong>
-                              {unit.score != null ? <span>{unit.score.toFixed(2)}</span> : null}
-                            </div>
-                            <p>{evidenceText(unit)}</p>
-                          </article>
+                          <ProductEvidenceCard key={unit.id ?? unit.unit_id ?? index} unit={unit} index={index} />
                         ))}
                       </div>
                     ) : (
-                      <p className="product-muted-note">Backend response did not include evidence_units.</p>
+                      <div className="product-empty-warning" role="status">
+                        Backend-ul nu a returnat evidence units.
+                      </div>
                     )}
                   </section>
 
-                  <div className={`product-graph-ready${queryGraph ? " product-graph-ready--active" : ""}`}>
-                    <span />
-                    <strong>{queryGraph ? "Graph ready" : "Graph pending"}</strong>
-                    <small>
-                      {queryGraph
-                        ? `${queryGraph.graph.nodes.length} nodes / ${queryGraph.graph.edges.length} edges`
-                        : "Waiting for /api/query/{query_id}/graph"}
-                    </small>
-                  </div>
+                  <ProductGraphStatus
+                    queryResponse={queryResponse}
+                    queryGraph={queryGraph}
+                    graphError={graphError}
+                    isGraphLoading={isGraphLoading}
+                  />
+
+                  <ProductDebugDetails response={queryResponse} queryGraph={queryGraph} graphError={graphError} />
                 </div>
               ) : queryError ? null : discoveredNodes.length > 0 ? (
                 <div className="product-discovery-list">
@@ -648,38 +1007,41 @@ function ProductPage() {
                   <div className="product-chat-empty-icon">
                     <ProductToolbarIcon kind="spark" />
                   </div>
-                  <strong>Începe o conversație nouă</strong>
+                  <strong>Întreabă ceva ca să construim traseul juridic.</strong>
+                  <p className="product-muted-note">
+                    LexAI va afișa răspunsul, citările, evidence-ul și graful juridic atunci când backend-ul returnează date verificabile.
+                  </p>
                   
                   <div className="product-chat-suggestions">
-                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Te rog să analizezi următoarele clauze contractuale pentru a identifica prevederi abuzive:")}>
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Poate angajatorul să-mi scadă salariul fără act adițional?")}>
                       <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="doc" /></div>
                       <div className="product-chat-suggestion-text">
-                        <strong>Analizează un contract</strong>
-                        <span>Clauze abuzive sau termeni</span>
+                        <strong>Salariu modificat</strong>
+                        <span>Act adițional și muncă</span>
                       </div>
                     </button>
 
-                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Care este procedura legală și care sunt termenele pentru...")}>
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Cum contest o amendă contravențională?")}>
                       <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="graph" /></div>
                       <div className="product-chat-suggestion-text">
-                        <strong>Explică o procedură</strong>
-                        <span>Pași legali și termene</span>
+                        <strong>Amendă contravențională</strong>
+                        <span>Contestare și termen</span>
                       </div>
                     </button>
 
-                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Ce drepturi are un angajat în cazul unei concedieri...")}>
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Ce drepturi am dacă lucrez ore suplimentare?")}>
                       <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="database" /></div>
                       <div className="product-chat-suggestion-text">
-                        <strong>Drepturile angajatului</strong>
-                        <span>Concediere sau demisie</span>
+                        <strong>Ore suplimentare</strong>
+                        <span>Drepturi și evidență</span>
                       </div>
                     </button>
 
-                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Găsește decizii și jurisprudență relevantă privind...")}>
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Ce se întâmplă dacă circul fără ITP valabil?")}>
                       <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="search" /></div>
                       <div className="product-chat-suggestion-text">
-                        <strong>Caută jurisprudență</strong>
-                        <span>Decizii relevante</span>
+                        <strong>ITP valabil</strong>
+                        <span>Circulație și sancțiuni</span>
                       </div>
                     </button>
                   </div>
@@ -714,6 +1076,7 @@ function ProductPage() {
                 onSend={handleSend}
                 ariaLabel="Ask a legal question or request"
                 secondaryButton={
+                  queryGraph ? (
                   <button
                     type="button"
                     className={`prompt-icon-button${isHighlightingPoints ? " is-active" : ""}`}
@@ -747,6 +1110,7 @@ function ProductPage() {
                       <ProductToolbarIcon kind="spark" />
                     )}
                   </button>
+                  ) : null
                 }
                 toolbarExtra={
                   <label className="prompt-toggle" title="Hide alineat nodes">
@@ -773,6 +1137,7 @@ function ProductPage() {
               queryGraph={queryGraph}
               highlightedNodeIds={queryGraph?.highlighted_node_ids}
               highlightedEdgeIds={queryGraph?.highlighted_edge_ids}
+              disableLocalFallback
             />
 
             {iteratingNodes.length > 0 ? (

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { postQuery } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { getHealth, postQuery } from '../lib/api'
 import type {
   Citation,
   EvidenceUnit,
@@ -10,6 +10,101 @@ import type {
 
 const DEMO_QUESTION =
   'Poate angajatorul să-mi scadă salariul fără act adițional?'
+
+const INSUFFICIENT_EVIDENCE_WARNINGS = new Set([
+  'raw_retrieval_unavailable',
+  'database_unavailable',
+  'evidence_pack_no_ranked_candidates',
+  'generation_insufficient_evidence',
+  'verifier_insufficient_evidence',
+  'answer_refused_insufficient_evidence',
+])
+
+const RETRIEVAL_UNAVAILABLE_WARNINGS = new Set([
+  'raw_retrieval_unavailable',
+  'database_unavailable',
+])
+
+const PIPELINE_STEPS = [
+  'Query understanding',
+  'Retrieval',
+  'Evidence',
+  'Verifier',
+  'Rendering',
+]
+
+type HealthStatus = 'checking' | 'online' | 'offline'
+
+interface AssistantError {
+  friendly: string
+  raw: string
+}
+
+function getRawErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function getFriendlyErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (
+    message.includes('Failed to fetch') ||
+    message.includes('NetworkError') ||
+    message.includes('Cannot reach LexAI backend')
+  ) {
+    return 'Nu pot contacta backend-ul LexAI. Verifică dacă FastAPI rulează pe 127.0.0.1:8010 și dacă VITE_API_BASE_URL este corect.'
+  }
+
+  if (message.includes('(422)')) {
+    return 'Întrebarea nu a trecut validarea backend-ului. Verifică dacă textul nu este prea scurt și dacă requestul folosește jurisdiction=RO, date=current, mode=strict_citations.'
+  }
+
+  if (message.includes('(500)')) {
+    return 'Backend-ul a returnat o eroare internă. Verifică terminalul FastAPI pentru stack trace și conexiunea la baza de date.'
+  }
+
+  if (message.includes('query_not_found')) {
+    return 'Query-ul nu mai este disponibil în store-ul backend. Reîncearcă întrebarea.'
+  }
+
+  return message
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getRawCandidatesCount(debug: QueryResponse['debug']) {
+  if (!isRecord(debug)) {
+    return null
+  }
+
+  const retrieval = debug.retrieval
+  if (!isRecord(retrieval)) {
+    return null
+  }
+
+  const responseSummary = retrieval.response_summary
+  if (!isRecord(responseSummary)) {
+    return null
+  }
+
+  const candidateCount = responseSummary.candidate_count
+  return typeof candidateCount === 'number' || typeof candidateCount === 'string'
+    ? candidateCount
+    : null
+}
+
+function getCombinedWarnings(response: QueryResponse) {
+  return [
+    ...(response.warnings ?? []),
+    ...(response.verifier?.warnings ?? []),
+  ]
+}
+
+function hasAnyWarning(warnings: string[], warningSet: Set<string>) {
+  return warnings.some((warning) => warningSet.has(warning))
+}
 
 function getCitationKey(citation: Citation, index: number) {
   return (
@@ -30,12 +125,34 @@ function getCitationUnitId(citation: Citation) {
   )
 }
 
-function getCitationText(citation: Citation) {
-  return citation.quote ?? citation.excerpt ?? citation.raw_text ?? null
-}
-
 function getCitationUrl(citation: Citation) {
   return citation.source_url ?? citation.url ?? null
+}
+
+function getEvidenceUnitKeys(unit: EvidenceUnit) {
+  return [unit.id, unit.unit_id, unit.node_id].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  )
+}
+
+function getCitationEvidenceText(
+  citation: Citation,
+  evidenceUnits: EvidenceUnit[],
+) {
+  const citationKeys = [
+    citation.legal_unit_id,
+    citation.unit_id,
+    citation.evidence_unit_id,
+    citation.node_id,
+  ].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  )
+
+  const matchedEvidence = evidenceUnits.find((unit) =>
+    getEvidenceUnitKeys(unit).some((key) => citationKeys.includes(key)),
+  )
+
+  return matchedEvidence?.raw_text ?? null
 }
 
 function renderVerifiedBadge(verified: Citation['verified']) {
@@ -84,12 +201,14 @@ function formatScore(score: number | null | undefined) {
 function CitationCardItem({
   citation,
   index,
+  evidenceUnits,
 }: {
   citation: Citation
   index: number
+  evidenceUnits: EvidenceUnit[]
 }) {
   const unitId = getCitationUnitId(citation)
-  const text = getCitationText(citation)
+  const text = getCitationEvidenceText(citation, evidenceUnits)
   const url = getCitationUrl(citation)
   const label = citation.label ?? citation.title ?? citation.act_title ?? null
 
@@ -106,7 +225,8 @@ function CitationCardItem({
         <blockquote className="assistant-legal-text">{text}</blockquote>
       ) : (
         <p className="assistant-empty">
-          Backend-ul nu a inclus quote/raw_text pentru această citare.
+          Textul citabil pentru această citare nu a fost găsit în
+          evidence_units[*].raw_text.
         </p>
       )}
       {url ? (
@@ -275,12 +395,12 @@ function VerifierPanel({
         <div className="assistant-verifier-stat">
           <dt>repair_applied</dt>
           <dd>
-            {v.repair_applied == null ? '—' : v.repair_applied ? 'da' : 'nu'}
+            {v.repair_applied == null ? 'indisponibil' : v.repair_applied ? 'da' : 'nu'}
           </dd>
         </div>
         <div className="assistant-verifier-stat">
           <dt>refusal_reason</dt>
-          <dd>{v.refusal_reason ?? '—'}</dd>
+          <dd>{v.refusal_reason ?? 'indisponibil'}</dd>
         </div>
       </dl>
     </article>
@@ -369,17 +489,185 @@ function DebugPanel({ response }: { response: QueryResponse }) {
   )
 }
 
+function HealthIndicator({
+  status,
+  message,
+}: {
+  status: HealthStatus
+  message: string
+}) {
+  return (
+    <div
+      className={`assistant-health assistant-health--${status}`}
+      aria-live="polite"
+    >
+      <span aria-hidden="true" />
+      <strong>{message}</strong>
+    </div>
+  )
+}
+
+function LoadingPipeline() {
+  return (
+    <article className="info-card assistant-pipeline" aria-live="polite">
+      <div>
+        <h2>Se procesează întrebarea</h2>
+        <p>Se construiește EvidencePack-ul...</p>
+      </div>
+      <ol>
+        {PIPELINE_STEPS.map((step) => (
+          <li className="assistant-pipeline-step" key={step}>
+            {step}
+          </li>
+        ))}
+      </ol>
+    </article>
+  )
+}
+
+function RefusalBanner({ response }: { response: QueryResponse }) {
+  const warnings = getCombinedWarnings(response)
+  const hasRefusal = Boolean(response.answer.refusal_reason)
+  const verifierFailed = response.verifier?.verifier_passed === false
+  const hasInsufficientEvidenceWarning = hasAnyWarning(
+    warnings,
+    INSUFFICIENT_EVIDENCE_WARNINGS,
+  )
+
+  if (!hasRefusal && !verifierFailed && !hasInsufficientEvidenceWarning) {
+    return null
+  }
+
+  const retrievalUnavailable = hasAnyWarning(
+    warnings,
+    RETRIEVAL_UNAVAILABLE_WARNINGS,
+  )
+
+  return (
+    <div className="assistant-refusal-banner" role="status">
+      <strong>
+        LexAI nu a putut produce un răspuns juridic susținut din evidence-ul
+        disponibil.
+      </strong>
+      {retrievalUnavailable ? (
+        <p>
+          Retrieval/corpus indisponibil. Verifică DATABASE_URL și conexiunea la
+          baza de date.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function BackendRunSummary({ response }: { response: QueryResponse }) {
+  const nodeCount = response.graph?.nodes?.length ?? 0
+  const edgeCount = response.graph?.edges?.length ?? 0
+  const rawCandidatesCount = getRawCandidatesCount(response.debug)
+  const warningsCount = getCombinedWarnings(response).length
+
+  return (
+    <article className="info-card assistant-run-summary">
+      <div className="assistant-meta-row">
+        <h2 style={{ margin: 0 }}>Backend run summary</h2>
+        <span className="assistant-badge">smoke</span>
+      </div>
+      <dl className="assistant-run-summary-grid">
+        <div>
+          <dt>query_id</dt>
+          <dd>
+            <code>{response.query_id}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>citations</dt>
+          <dd>{response.citations?.length ?? 0}</dd>
+        </div>
+        <div>
+          <dt>evidence_units</dt>
+          <dd>{response.evidence_units?.length ?? 0}</dd>
+        </div>
+        <div>
+          <dt>verifier_passed</dt>
+          <dd>
+            {response.verifier?.verifier_passed == null
+              ? 'indisponibil'
+              : response.verifier.verifier_passed
+                ? 'true'
+                : 'false'}
+          </dd>
+        </div>
+        <div>
+          <dt>warnings</dt>
+          <dd>{warningsCount}</dd>
+        </div>
+        <div>
+          <dt>graph nodes</dt>
+          <dd>{nodeCount}</dd>
+        </div>
+        <div>
+          <dt>graph edges</dt>
+          <dd>{edgeCount}</dd>
+        </div>
+        {rawCandidatesCount != null ? (
+          <div>
+            <dt>raw candidates count</dt>
+            <dd>{rawCandidatesCount}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </article>
+  )
+}
+
 function AssistantPage() {
   const [question, setQuestion] = useState('')
   const [response, setResponse] = useState<QueryResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AssistantError | null>(null)
+  const [lastFailedQuestion, setLastFailedQuestion] = useState<string | null>(
+    null,
+  )
+  const [healthStatus, setHealthStatus] =
+    useState<HealthStatus>('checking')
+  const [healthMessage, setHealthMessage] = useState('Verific backend...')
+
+  useEffect(() => {
+    let ignore = false
+
+    async function checkHealth() {
+      try {
+        const health = await getHealth()
+        if (ignore) {
+          return
+        }
+
+        const serviceLabel = health.service ? ` (${health.service})` : ''
+        const statusLabel = health.status ? `: ${health.status}` : ''
+        setHealthStatus('online')
+        setHealthMessage(`Backend online${serviceLabel}${statusLabel}`)
+      } catch {
+        if (ignore) {
+          return
+        }
+        setHealthStatus('offline')
+        setHealthMessage('Backend offline')
+      }
+    }
+
+    void checkHealth()
+
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   const trimmed = question.trim()
   const submitDisabled = trimmed.length === 0 || isLoading
 
-  async function handleSubmit() {
-    if (submitDisabled) {
+  async function submitQuestion(rawQuestion: string) {
+    const nextQuestion = rawQuestion.trim()
+
+    if (nextQuestion.length === 0 || isLoading) {
       return
     }
 
@@ -388,7 +676,7 @@ function AssistantPage() {
     setResponse(null)
 
     const request: QueryRequest = {
-      question: trimmed,
+      question: nextQuestion,
       jurisdiction: 'RO',
       date: 'current',
       mode: 'strict_citations',
@@ -398,11 +686,29 @@ function AssistantPage() {
     try {
       const result = await postQuery(request)
       setResponse(result)
+      setLastFailedQuestion(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setLastFailedQuestion(nextQuestion)
+      setError({
+        friendly: getFriendlyErrorMessage(err),
+        raw: getRawErrorMessage(err),
+      })
     } finally {
       setIsLoading(false)
     }
+  }
+
+  function handleSubmit() {
+    void submitQuestion(question)
+  }
+
+  function handleRetry() {
+    if (!lastFailedQuestion) {
+      return
+    }
+
+    setQuestion(lastFailedQuestion)
+    void submitQuestion(lastFailedQuestion)
   }
 
   const citations = response?.citations ?? []
@@ -417,6 +723,7 @@ function AssistantPage() {
           Trimite o întrebare către LexAI. Răspunsul vine cu citări și evidence
           units din corpus-ul juridic românesc.
         </p>
+        <HealthIndicator status={healthStatus} message={healthMessage} />
       </div>
 
       <article className="info-card assistant-card">
@@ -456,13 +763,34 @@ function AssistantPage() {
       {error ? (
         <article className="info-card assistant-error">
           <h2>Eroare</h2>
-          <p>{error}</p>
+          <p>{error.friendly}</p>
+          <div className="assistant-actions">
+            {lastFailedQuestion ? (
+              <button
+                type="button"
+                className="assistant-btn assistant-retry-button"
+                onClick={handleRetry}
+                disabled={isLoading}
+              >
+                Reîncearcă
+              </button>
+            ) : null}
+          </div>
+          <details className="assistant-error-details">
+            <summary>Detalii tehnice</summary>
+            <pre>{error.raw}</pre>
+          </details>
         </article>
       ) : null}
 
-      {isLoading ? (
-        <article className="info-card">
-          <p>Se interoghează backend-ul LexAI…</p>
+      {isLoading ? <LoadingPipeline /> : null}
+
+      {!response && !isLoading && !error ? (
+        <article className="info-card assistant-section">
+          <h2>Nicio rulare încă</h2>
+          <p className="assistant-empty">
+            Trimite o întrebare sau pornește de la întrebarea demo.
+          </p>
         </article>
       ) : null}
 
@@ -470,6 +798,7 @@ function AssistantPage() {
         <>
           <article className="info-card assistant-response">
             <h2>Răspuns</h2>
+            <RefusalBanner response={response} />
             <p className="assistant-short-answer">
               {response.answer.short_answer ??
                 'Backend response did not include answer.short_answer.'}
@@ -494,6 +823,8 @@ function AssistantPage() {
             </dl>
           </article>
 
+          <BackendRunSummary response={response} />
+
           <article className="info-card assistant-section">
             <h2>Citări</h2>
             {citations.length === 0 ? (
@@ -507,6 +838,7 @@ function AssistantPage() {
                     key={getCitationKey(citation, index)}
                     citation={citation}
                     index={index}
+                    evidenceUnits={evidenceUnits}
                   />
                 ))}
               </ul>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, useMotionValue } from 'framer-motion'
 
 const WORLD_SIZE = 10000
@@ -82,6 +82,53 @@ function CanvasContainer() {
   const y = useMotionValue(0)
   const scale = useMotionValue(INITIAL_SCALE)
 
+  const screenToWorld = useCallback((point: CanvasPoint, viewport = viewportRef.current) => {
+    return {
+      x: (point.x - viewport.x) / viewport.scale,
+      y: (point.y - viewport.y) / viewport.scale,
+    }
+  }, [])
+
+  const clampViewport = useCallback((nextViewport: ViewportState): ViewportState => {
+    const nextScale = clamp(nextViewport.scale, MIN_SCALE, MAX_SCALE)
+    const scaledWorldWidth = WORLD_SIZE * nextScale
+    const scaledWorldHeight = WORLD_SIZE * nextScale
+
+    const nextX = scaledWorldWidth <= surfaceSize.width
+      ? (surfaceSize.width - scaledWorldWidth) / 2
+      : clamp(nextViewport.x, surfaceSize.width - scaledWorldWidth - EDGE_PADDING, EDGE_PADDING)
+
+    const nextY = scaledWorldHeight <= surfaceSize.height
+      ? (surfaceSize.height - scaledWorldHeight) / 2
+      : clamp(nextViewport.y, surfaceSize.height - scaledWorldHeight - EDGE_PADDING, EDGE_PADDING)
+
+    return {
+      x: nextX,
+      y: nextY,
+      scale: nextScale,
+    }
+  }, [surfaceSize.height, surfaceSize.width])
+
+  const applyViewport = useCallback((nextViewport: ViewportState) => {
+    const clampedViewport = clampViewport(nextViewport)
+
+    viewportRef.current = clampedViewport
+    x.set(clampedViewport.x)
+    y.set(clampedViewport.y)
+    scale.set(clampedViewport.scale)
+  }, [clampViewport, scale, x, y])
+
+  const zoomAtPoint = useCallback((nextScale: number, point: CanvasPoint) => {
+    const currentViewport = viewportRef.current
+    const anchorWorld = screenToWorld(point, currentViewport)
+
+    applyViewport({
+      scale: nextScale,
+      x: point.x - anchorWorld.x * nextScale,
+      y: point.y - anchorWorld.y * nextScale,
+    })
+  }, [applyViewport, screenToWorld])
+
   useEffect(() => {
     const element = surfaceRef.current
 
@@ -115,7 +162,7 @@ function CanvasContainer() {
     }
 
     applyViewport(viewportRef.current)
-  }, [surfaceSize])
+  }, [applyViewport, surfaceSize.height, surfaceSize.width])
 
   useEffect(() => {
     const element = surfaceRef.current
@@ -191,54 +238,7 @@ function CanvasContainer() {
       surfaceElement.removeEventListener('gesturechange', handleGestureChange as EventListener)
       surfaceElement.removeEventListener('gestureend', handleGestureEnd as EventListener)
     }
-  }, [surfaceSize])
-
-  function screenToWorld(point: CanvasPoint, viewport = viewportRef.current) {
-    return {
-      x: (point.x - viewport.x) / viewport.scale,
-      y: (point.y - viewport.y) / viewport.scale,
-    }
-  }
-
-  function clampViewport(nextViewport: ViewportState): ViewportState {
-    const nextScale = clamp(nextViewport.scale, MIN_SCALE, MAX_SCALE)
-    const scaledWorldWidth = WORLD_SIZE * nextScale
-    const scaledWorldHeight = WORLD_SIZE * nextScale
-
-    const nextX = scaledWorldWidth <= surfaceSize.width
-      ? (surfaceSize.width - scaledWorldWidth) / 2
-      : clamp(nextViewport.x, surfaceSize.width - scaledWorldWidth - EDGE_PADDING, EDGE_PADDING)
-
-    const nextY = scaledWorldHeight <= surfaceSize.height
-      ? (surfaceSize.height - scaledWorldHeight) / 2
-      : clamp(nextViewport.y, surfaceSize.height - scaledWorldHeight - EDGE_PADDING, EDGE_PADDING)
-
-    return {
-      x: nextX,
-      y: nextY,
-      scale: nextScale,
-    }
-  }
-
-  function applyViewport(nextViewport: ViewportState) {
-    const clampedViewport = clampViewport(nextViewport)
-
-    viewportRef.current = clampedViewport
-    x.set(clampedViewport.x)
-    y.set(clampedViewport.y)
-    scale.set(clampedViewport.scale)
-  }
-
-  function zoomAtPoint(nextScale: number, point: CanvasPoint) {
-    const currentViewport = viewportRef.current
-    const anchorWorld = screenToWorld(point, currentViewport)
-
-    applyViewport({
-      scale: nextScale,
-      x: point.x - anchorWorld.x * nextScale,
-      y: point.y - anchorWorld.y * nextScale,
-    })
-  }
+  }, [applyViewport, surfaceSize.height, surfaceSize.width, zoomAtPoint])
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 && event.pointerType !== 'touch') return

@@ -30,6 +30,7 @@ export interface Citation {
   excerpt?: string | null
   quote?: string | null
   raw_text?: string | null
+  snippet?: string | null
   url?: string | null
   source_url?: string | null
   verified?: boolean | null
@@ -128,6 +129,9 @@ export interface GraphEdge {
   edge_type?: GraphEdgeType | null
   label?: string | null
   metadata?: Record<string, unknown> | null
+  weight?: number | null
+  confidence?: number | null
+  explanation?: string | null
 }
 
 export interface GraphPayload {
@@ -163,7 +167,7 @@ export interface QueryGraphResponse {
   highlighted_edge_ids: string[]
   cited_unit_ids: string[]
   reasoning_path: Array<string | ReasoningPathItem>
-  verifier_summary?: string | null
+  verifier_summary?: string | Record<string, unknown> | null
 }
 
 export interface Suggestion {

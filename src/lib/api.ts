@@ -1,7 +1,20 @@
+import { ZodError } from 'zod'
 import type { QueryGraphResponse, QueryRequest, QueryResponse, Suggestion, LibraryItem } from '../types/lexai'
+import { normalizeQueryGraphResponse, normalizeQueryResponse } from './lexaiNormalizers'
 
-export const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8010').replace(/\/+$/, '')
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+
+if (import.meta.env.PROD && !configuredApiBaseUrl) {
+  throw new Error('Missing VITE_API_BASE_URL. Configure it in the deployment environment.')
+}
+
+// Localhost fallback is dev-only. Production deploys must configure VITE_API_BASE_URL.
+export const API_BASE_URL = (configuredApiBaseUrl || 'http://127.0.0.1:8010').replace(/\/+$/, '')
+
+export interface HealthResponse {
+  status?: string
+  service?: string
+}
 
 async function readErrorMessage(response: Response): Promise<string> {
   const fallback = response.statusText || 'Request failed'
@@ -33,38 +46,94 @@ async function readErrorMessage(response: Response): Promise<string> {
   return fallback
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+function summarizeValidationError(error: unknown) {
+  if (error instanceof ZodError) {
+    return error.issues
+      .slice(0, 5)
+      .map((issue) => {
+        const path = issue.path.length > 0 ? issue.path.join('.') : 'root'
+        return `${path}: ${issue.message}`
+      })
+      .join('; ')
+  }
+
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return ''
+}
+
+function normalizeApiResponse<T>(endpoint: string, raw: unknown, normalize: (raw: unknown) => T): T {
+  try {
+    return normalize(raw)
+  } catch (error) {
+    const summary = summarizeValidationError(error)
+    const detail = summary ? ` ${summary}` : ''
+    throw new Error(`LexAI API response validation failed for ${endpoint}.${detail}`, { cause: error })
+  }
+}
+
+async function requestRawJson(path: string, init?: RequestInit): Promise<unknown> {
   const method = init?.method ?? 'GET'
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json; charset=utf-8' } : {}),
-      ...init?.headers,
-    },
-  })
+  let response: Response
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        Accept: 'application/json',
+        ...(init?.body ? { 'Content-Type': 'application/json; charset=utf-8' } : {}),
+        ...init?.headers,
+      },
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : ''
+    throw new Error(
+      `Cannot reach LexAI backend at ${API_BASE_URL} for ${method} ${path}.${detail} Check that the backend is running and VITE_API_BASE_URL does not include /api.`,
+      { cause: error },
+    )
+  }
 
   if (!response.ok) {
     const message = await readErrorMessage(response)
     throw new Error(`LexAI API ${method} ${path} failed (${response.status}): ${message}`)
   }
 
-  return response.json() as Promise<T>
+  try {
+    return await response.json()
+  } catch {
+    throw new Error(`LexAI API ${method} ${path} returned invalid JSON.`)
+  }
 }
 
-export function postQuery(request: QueryRequest): Promise<QueryResponse> {
-  return requestJson<QueryResponse>('/api/query', {
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await requestRawJson(path, init)) as T
+}
+
+export function getHealth(): Promise<HealthResponse> {
+  return requestJson<HealthResponse>('/api/health')
+}
+
+export async function postQuery(request: QueryRequest): Promise<QueryResponse> {
+  const endpoint = '/api/query'
+  const raw = await requestRawJson(endpoint, {
     method: 'POST',
     body: JSON.stringify(request),
   })
+  return normalizeApiResponse(endpoint, raw, normalizeQueryResponse)
 }
 
-export function getQuery(queryId: string): Promise<QueryResponse> {
-  return requestJson<QueryResponse>(`/api/query/${encodeURIComponent(queryId)}`)
+export async function getQuery(queryId: string): Promise<QueryResponse> {
+  const endpoint = `/api/query/${encodeURIComponent(queryId)}`
+  const raw = await requestRawJson(endpoint)
+  return normalizeApiResponse(endpoint, raw, normalizeQueryResponse)
 }
 
-export function getQueryGraph(queryId: string): Promise<QueryGraphResponse> {
-  return requestJson<QueryGraphResponse>(`/api/query/${encodeURIComponent(queryId)}/graph`)
+export async function getQueryGraph(queryId: string): Promise<QueryGraphResponse> {
+  const endpoint = `/api/query/${encodeURIComponent(queryId)}/graph`
+  const raw = await requestRawJson(endpoint)
+  return normalizeApiResponse(endpoint, raw, normalizeQueryGraphResponse)
 }
 
 export function getSuggestions(): Promise<Suggestion[]> {
