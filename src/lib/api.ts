@@ -1,7 +1,7 @@
 import type { QueryGraphResponse, QueryRequest, QueryResponse, Suggestion, LibraryItem } from '../types/lexai'
 
 export const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/+$/, '')
+  (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8010').replace(/\/+$/, '')
 
 async function readErrorMessage(response: Response): Promise<string> {
   const fallback = response.statusText || 'Request failed'
@@ -39,7 +39,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.body ? { 'Content-Type': 'application/json; charset=utf-8' } : {}),
       ...init?.headers,
     },
   })
@@ -75,10 +75,10 @@ export function getLibrary(): Promise<LibraryItem[]> {
   return requestJson<LibraryItem[]>('/api/library')
 }
 
-export function getProductGraph(): Promise<{ nodes: any[]; edges: any[] }> {
-  return requestJson<{ nodes: any[]; edges: any[] }>('/api/product/graph')
+export function getProductGraph(): Promise<{ nodes: unknown[]; edges: unknown[] }> {
+  return requestJson<{ nodes: unknown[]; edges: unknown[] }>('/api/product/graph')
 }
 
-export function getExploreGraph(): Promise<{ nodes: any[]; edges: string[][] }> {
-  return requestJson<{ nodes: any[]; edges: string[][] }>('/api/graph/explore')
+export function getExploreGraph(): Promise<{ nodes: unknown[]; edges: string[][] }> {
+  return requestJson<{ nodes: unknown[]; edges: string[][] }>('/api/graph/explore')
 }

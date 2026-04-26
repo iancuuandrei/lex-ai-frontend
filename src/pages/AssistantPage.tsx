@@ -1,16 +1,412 @@
-import { useEffect, useState } from 'react'
-import { getSuggestions } from '../lib/api'
-import type { Suggestion } from '../types/lexai'
+import { useState } from 'react'
+import { postQuery } from '../lib/api'
+import type {
+  Citation,
+  EvidenceUnit,
+  QueryRequest,
+  QueryResponse,
+  VerifierPayload,
+} from '../types/lexai'
+
+const DEMO_QUESTION =
+  'Poate angajatorul să-mi scadă salariul fără act adițional?'
+
+function getCitationKey(citation: Citation, index: number) {
+  return (
+    citation.citation_id ??
+    citation.id ??
+    citation.legal_unit_id ??
+    citation.unit_id ??
+    `citation-${index}`
+  )
+}
+
+function getCitationUnitId(citation: Citation) {
+  return (
+    citation.legal_unit_id ??
+    citation.unit_id ??
+    citation.evidence_unit_id ??
+    'unknown'
+  )
+}
+
+function getCitationText(citation: Citation) {
+  return citation.quote ?? citation.excerpt ?? citation.raw_text ?? null
+}
+
+function getCitationUrl(citation: Citation) {
+  return citation.source_url ?? citation.url ?? null
+}
+
+function renderVerifiedBadge(verified: Citation['verified']) {
+  if (verified === true) {
+    return (
+      <span className="assistant-badge assistant-badge--verified">
+        Verificat
+      </span>
+    )
+  }
+  if (verified === false) {
+    return (
+      <span className="assistant-badge assistant-badge--warning">
+        Neverificat
+      </span>
+    )
+  }
+  return <span className="assistant-badge">Status necunoscut</span>
+}
+
+function getEvidenceLocation(unit: EvidenceUnit) {
+  const parts = [
+    unit.article_number != null && unit.article_number !== ''
+      ? `art. ${unit.article_number}`
+      : null,
+    unit.paragraph_number != null && unit.paragraph_number !== ''
+      ? `alin. (${unit.paragraph_number})`
+      : null,
+    unit.letter_number != null && unit.letter_number !== ''
+      ? `lit. ${unit.letter_number})`
+      : null,
+    unit.point_number != null && unit.point_number !== ''
+      ? `pct. ${unit.point_number}`
+      : null,
+  ].filter(Boolean)
+  return parts.join(', ')
+}
+
+function formatScore(score: number | null | undefined) {
+  if (score == null || Number.isNaN(score)) {
+    return null
+  }
+  return score.toFixed(3)
+}
+
+function CitationCardItem({
+  citation,
+  index,
+}: {
+  citation: Citation
+  index: number
+}) {
+  const unitId = getCitationUnitId(citation)
+  const text = getCitationText(citation)
+  const url = getCitationUrl(citation)
+  const label = citation.label ?? citation.title ?? citation.act_title ?? null
+
+  return (
+    <li className="assistant-citation-card">
+      <div className="assistant-meta-row">
+        <strong>{label ?? `Citare #${index + 1}`}</strong>
+        {renderVerifiedBadge(citation.verified)}
+      </div>
+      <div className="assistant-meta-row">
+        <span>unit_id:</span> <code>{unitId}</code>
+      </div>
+      {text ? (
+        <blockquote className="assistant-legal-text">{text}</blockquote>
+      ) : (
+        <p className="assistant-empty">
+          Backend-ul nu a inclus quote/raw_text pentru această citare.
+        </p>
+      )}
+      {url ? (
+        <div className="assistant-meta-row">
+          <a href={url} target="_blank" rel="noreferrer noopener">
+            {url}
+          </a>
+        </div>
+      ) : null}
+    </li>
+  )
+}
+
+function EvidenceCardItem({ unit }: { unit: EvidenceUnit }) {
+  const location = getEvidenceLocation(unit)
+  const retrieval = formatScore(unit.retrieval_score)
+  const rerank = formatScore(unit.rerank_score)
+  const url = unit.source_url ?? null
+
+  return (
+    <li className="assistant-evidence-card">
+      <div className="assistant-meta-row">
+        <strong>
+          <code>{unit.id}</code>
+        </strong>
+        {unit.support_role ? (
+          <span className="assistant-badge">{unit.support_role}</span>
+        ) : null}
+      </div>
+      {unit.law_title ? (
+        <div className="assistant-meta-row">{unit.law_title}</div>
+      ) : null}
+      {location ? (
+        <div className="assistant-meta-row">{location}</div>
+      ) : null}
+      {retrieval || rerank ? (
+        <div className="assistant-meta-row">
+          {retrieval ? <span>retrieval: {retrieval}</span> : null}
+          {retrieval && rerank ? <span> · </span> : null}
+          {rerank ? <span>rerank: {rerank}</span> : null}
+        </div>
+      ) : null}
+      {unit.raw_text ? (
+        <blockquote className="assistant-legal-text">
+          {unit.raw_text}
+        </blockquote>
+      ) : (
+        <p className="assistant-empty">
+          Această unitate nu include raw_text în răspunsul backend.
+        </p>
+      )}
+      {unit.why_selected ? (
+        <p className="assistant-why-selected">
+          <em>{unit.why_selected}</em>
+        </p>
+      ) : null}
+      {url ? (
+        <div className="assistant-meta-row">
+          <a href={url} target="_blank" rel="noreferrer noopener">
+            {url}
+          </a>
+        </div>
+      ) : null}
+    </li>
+  )
+}
+
+function formatGroundedness(score: number | null | undefined) {
+  if (typeof score !== 'number' || Number.isNaN(score)) {
+    return '—'
+  }
+  const pct = score * 100
+  const decimals = Number.isInteger(pct) ? 0 : 1
+  return `${pct.toFixed(decimals)}%`
+}
+
+function formatStat(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '—'
+  }
+  return String(value)
+}
+
+function renderVerifierBadge(passed: VerifierPayload['verifier_passed']) {
+  if (passed === true) {
+    return (
+      <span className="assistant-badge assistant-badge--verified">
+        Verifier passed
+      </span>
+    )
+  }
+  if (passed === false) {
+    return (
+      <span className="assistant-badge assistant-badge--warning">
+        Verifier failed
+      </span>
+    )
+  }
+  return (
+    <span className="assistant-badge">Verifier status necunoscut</span>
+  )
+}
+
+function VerifierPanel({
+  verifier,
+  refusalReason,
+}: {
+  verifier: VerifierPayload | null | undefined
+  refusalReason: string | null | undefined
+}) {
+  const v = verifier ?? {}
+  const passed = v.verifier_passed ?? null
+  const repairApplied = v.repair_applied === true
+
+  return (
+    <article className="info-card assistant-section">
+      <div className="assistant-meta-row">
+        <h2 style={{ margin: 0 }}>Verifier</h2>
+        {renderVerifierBadge(passed)}
+      </div>
+
+      {passed === false ? (
+        <div className="assistant-status-banner assistant-status-banner--danger">
+          Răspunsul nu a trecut verificarea completă. Verifică avertismentele
+          și evidence-ul.
+        </div>
+      ) : null}
+
+      {repairApplied ? (
+        <div className="assistant-status-banner assistant-status-banner--info">
+          A fost aplicată o reparare/refuzare automată pe baza verificării.
+        </div>
+      ) : null}
+
+      {refusalReason ? (
+        <div className="assistant-status-banner assistant-status-banner--danger">
+          Refusal reason: {refusalReason}
+        </div>
+      ) : null}
+
+      <dl className="assistant-verifier-grid">
+        <div className="assistant-verifier-stat">
+          <dt>groundedness_score</dt>
+          <dd>{formatGroundedness(v.groundedness_score)}</dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>claims_total</dt>
+          <dd>{formatStat(v.claims_total)}</dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>claims_supported</dt>
+          <dd>{formatStat(v.claims_supported)}</dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>claims_weakly_supported</dt>
+          <dd>{formatStat(v.claims_weakly_supported)}</dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>claims_unsupported</dt>
+          <dd>{formatStat(v.claims_unsupported)}</dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>citations_checked</dt>
+          <dd>{formatStat(v.citations_checked)}</dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>repair_applied</dt>
+          <dd>
+            {v.repair_applied == null ? '—' : v.repair_applied ? 'da' : 'nu'}
+          </dd>
+        </div>
+        <div className="assistant-verifier-stat">
+          <dt>refusal_reason</dt>
+          <dd>{v.refusal_reason ?? '—'}</dd>
+        </div>
+      </dl>
+    </article>
+  )
+}
+
+function WarningsPanel({
+  responseWarnings,
+  verifierWarnings,
+}: {
+  responseWarnings: string[]
+  verifierWarnings: string[]
+}) {
+  const hasResponse = responseWarnings.length > 0
+  const hasVerifier = verifierWarnings.length > 0
+
+  if (!hasResponse && !hasVerifier) {
+    return (
+      <article className="info-card assistant-warning-panel">
+        <h2>Warnings</h2>
+        <p className="assistant-empty">
+          Nu există avertismente raportate de backend.
+        </p>
+      </article>
+    )
+  }
+
+  return (
+    <article className="info-card assistant-warning-panel">
+      <h2>Warnings</h2>
+      {hasResponse ? (
+        <>
+          <h3>response.warnings</h3>
+          <ul className="assistant-warning-list">
+            {responseWarnings.map((w, i) => (
+              <li key={`resp-${i}`}>{w}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {hasVerifier ? (
+        <>
+          <h3>verifier.warnings</h3>
+          <ul className="assistant-warning-list">
+            {verifierWarnings.map((w, i) => (
+              <li key={`ver-${i}`}>{w}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </article>
+  )
+}
+
+function DebugPanel({ response }: { response: QueryResponse }) {
+  const debug = response.debug
+  const nodeCount = response.graph?.nodes?.length ?? 0
+  const edgeCount = response.graph?.edges?.length ?? 0
+
+  return (
+    <article className="info-card assistant-section">
+      <h2>Debug</h2>
+      <dl className="assistant-meta">
+        <dt>query_id</dt>
+        <dd>
+          <code>{response.query_id}</code>
+        </dd>
+        <dt>graph nodes</dt>
+        <dd>{nodeCount}</dd>
+        <dt>graph edges</dt>
+        <dd>{edgeCount}</dd>
+      </dl>
+      {debug ? (
+        <details className="assistant-debug-panel">
+          <summary>Debug payload</summary>
+          <pre className="assistant-debug-json">
+            {JSON.stringify(debug, null, 2)}
+          </pre>
+        </details>
+      ) : (
+        <p className="assistant-empty">
+          Debug payload indisponibil. Asigură-te că request.debug=true.
+        </p>
+      )}
+    </article>
+  )
+}
 
 function AssistantPage() {
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
-  const [loading, setLoading] = useState(true)
+  const [question, setQuestion] = useState('')
+  const [response, setResponse] = useState<QueryResponse | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    getSuggestions()
-      .then(setSuggestions)
-      .finally(() => setLoading(false))
-  }, [])
+  const trimmed = question.trim()
+  const submitDisabled = trimmed.length === 0 || isLoading
+
+  async function handleSubmit() {
+    if (submitDisabled) {
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    setResponse(null)
+
+    const request: QueryRequest = {
+      question: trimmed,
+      jurisdiction: 'RO',
+      date: 'current',
+      mode: 'strict_citations',
+      debug: true,
+    }
+
+    try {
+      const result = await postQuery(request)
+      setResponse(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const citations = response?.citations ?? []
+  const evidenceUnits = response?.evidence_units ?? []
 
   return (
     <section className="page">
@@ -18,32 +414,133 @@ function AssistantPage() {
         <span className="eyebrow">Assistant route</span>
         <h1>Ask the assistant</h1>
         <p>
-          This page can become your prompt workspace, with room for uploads,
-          conversation history, and cited answers.
+          Trimite o întrebare către LexAI. Răspunsul vine cu citări și evidence
+          units din corpus-ul juridic românesc.
         </p>
       </div>
 
-      <div className="page-grid">
-        <article className="info-card">
-          <h2>Starter prompts</h2>
-          {loading ? (
-            <p>Loading suggestions...</p>
-          ) : (
-            <ul className="simple-list">
-              {suggestions.map((item) => (
-                <li key={item.id}>{item.text}</li>
-              ))}
-            </ul>
-          )}
+      <article className="info-card assistant-card">
+        <label htmlFor="assistant-question">
+          <strong>Întrebarea ta</strong>
+        </label>
+        <textarea
+          id="assistant-question"
+          className="assistant-textarea"
+          rows={4}
+          placeholder="Ex: Poate angajatorul să-mi scadă salariul fără act adițional?"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          disabled={isLoading}
+        />
+
+        <div className="assistant-actions">
+          <button
+            type="button"
+            className="assistant-btn assistant-btn--secondary"
+            onClick={() => setQuestion(DEMO_QUESTION)}
+            disabled={isLoading}
+          >
+            Demo question
+          </button>
+          <button
+            type="button"
+            className="assistant-btn assistant-btn--primary"
+            onClick={handleSubmit}
+            disabled={submitDisabled}
+          >
+            {isLoading ? 'Se procesează…' : 'Întreabă LexAI'}
+          </button>
+        </div>
+      </article>
+
+      {error ? (
+        <article className="info-card assistant-error">
+          <h2>Eroare</h2>
+          <p>{error}</p>
         </article>
+      ) : null}
+
+      {isLoading ? (
         <article className="info-card">
-          <h2>Why this route exists</h2>
-          <p>
-            Keeping the assistant on its own route makes it easy to later support
-            deep links, page-specific loading states, and route guards.
-          </p>
+          <p>Se interoghează backend-ul LexAI…</p>
         </article>
-      </div>
+      ) : null}
+
+      {response ? (
+        <>
+          <article className="info-card assistant-response">
+            <h2>Răspuns</h2>
+            <p className="assistant-short-answer">
+              {response.answer.short_answer ??
+                'Backend response did not include answer.short_answer.'}
+            </p>
+            {response.answer.refusal_reason ? (
+              <p className="assistant-refusal">
+                <em>Refuz: {response.answer.refusal_reason}</em>
+              </p>
+            ) : null}
+
+            <dl className="assistant-meta">
+              <dt>query_id</dt>
+              <dd>
+                <code>{response.query_id}</code>
+              </dd>
+              <dt>citations</dt>
+              <dd>{response.citations?.length ?? 0}</dd>
+              <dt>evidence_units</dt>
+              <dd>{response.evidence_units?.length ?? 0}</dd>
+              <dt>warnings</dt>
+              <dd>{response.warnings?.length ?? 0}</dd>
+            </dl>
+          </article>
+
+          <article className="info-card assistant-section">
+            <h2>Citări</h2>
+            {citations.length === 0 ? (
+              <p className="assistant-empty">
+                Nu există citări verificate pentru acest răspuns.
+              </p>
+            ) : (
+              <ul className="assistant-card-list">
+                {citations.map((citation, index) => (
+                  <CitationCardItem
+                    key={getCitationKey(citation, index)}
+                    citation={citation}
+                    index={index}
+                  />
+                ))}
+              </ul>
+            )}
+          </article>
+
+          <article className="info-card assistant-section">
+            <h2>Evidence</h2>
+            {evidenceUnits.length === 0 ? (
+              <p className="assistant-empty">
+                Backend-ul nu a returnat evidence units pentru acest răspuns.
+              </p>
+            ) : (
+              <ul className="assistant-card-list">
+                {evidenceUnits.map((unit) => (
+                  <EvidenceCardItem key={unit.id} unit={unit} />
+                ))}
+              </ul>
+            )}
+          </article>
+
+          <VerifierPanel
+            verifier={response.verifier}
+            refusalReason={response.answer.refusal_reason}
+          />
+
+          <WarningsPanel
+            responseWarnings={response.warnings ?? []}
+            verifierWarnings={response.verifier?.warnings ?? []}
+          />
+
+          <DebugPanel response={response} />
+        </>
+      ) : null}
     </section>
   )
 }
