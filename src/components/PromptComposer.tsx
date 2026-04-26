@@ -9,6 +9,7 @@ interface PromptComposerProps {
   ariaLabel: string
   className?: string
   toolbarExtra?: React.ReactNode
+  secondaryButton?: React.ReactNode
 }
 
 function ArrowUpIcon() {
@@ -34,6 +35,7 @@ export default function PromptComposer({
   ariaLabel,
   className = '',
   toolbarExtra,
+  secondaryButton,
 }: PromptComposerProps) {
   const [ideaIndex, setIdeaIndex] = useState(0)
   const [typedIdea, setTypedIdea] = useState('')
@@ -106,6 +108,7 @@ export default function PromptComposer({
 
         <div className="prompt-card__toolbar">
           {toolbarExtra}
+          {secondaryButton}
           <button
             className="prompt-icon-button prompt-icon-button-primary"
             type="button"

@@ -563,6 +563,12 @@ function ProductPage() {
     secondary: false,
   });
 
+  const [isHighlightingPoints, setIsHighlightingPoints] = useState(false);
+  const [discoveryProgress, setDiscoveryProgress] = useState(0);
+  const [graphStats, setGraphStats] = useState({ totalNodes: 0, totalLinks: 0, articles: 0 });
+  const [iteratingNodes, setIteratingNodes] = useState<ProductForceGraphNode[]>([]);
+  const [currentIteratingIndex, setCurrentIteratingIndex] = useState(-1);
+
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const normalizedSearch = deferredSearchQuery.trim().toLowerCase();
   const visibleNodes = productNodes.filter(
@@ -918,17 +924,66 @@ function ProductPage() {
                 </div>
               ) : (
                 <div className="product-chat-empty-state" aria-live="polite">
-                  <div className="product-chat-empty-icon ">
+                  <div className="product-chat-empty-icon">
                     <ProductToolbarIcon kind="spark" />
                   </div>
                   <strong>Începe o conversație nouă</strong>
-                  <p>Pune întrebări despre concepte juridice.</p>
-                  <p>Cere rezumate sau explicații cu citări.</p>
-                  <p>Explorează conexiunile din graful de cunoștințe.</p>
+                  
+                  <div className="product-chat-suggestions">
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Te rog să analizezi următoarele clauze contractuale pentru a identifica prevederi abuzive:")}>
+                      <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="doc" /></div>
+                      <div className="product-chat-suggestion-text">
+                        <strong>Analizează un contract</strong>
+                        <span>Clauze abuzive sau termeni</span>
+                      </div>
+                    </button>
+
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Care este procedura legală și care sunt termenele pentru...")}>
+                      <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="graph" /></div>
+                      <div className="product-chat-suggestion-text">
+                        <strong>Explică o procedură</strong>
+                        <span>Pași legali și termene</span>
+                      </div>
+                    </button>
+
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Ce drepturi are un angajat în cazul unei concedieri...")}>
+                      <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="database" /></div>
+                      <div className="product-chat-suggestion-text">
+                        <strong>Drepturile angajatului</strong>
+                        <span>Concediere sau demisie</span>
+                      </div>
+                    </button>
+
+                    <button className="product-chat-suggestion" onClick={() => setPromptValue("Găsește decizii și jurisprudență relevantă privind...")}>
+                      <div className="product-chat-suggestion-icon"><ProductToolbarIcon kind="search" /></div>
+                      <div className="product-chat-suggestion-text">
+                        <strong>Caută jurisprudență</strong>
+                        <span>Decizii relevante</span>
+                      </div>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
             <div className="product-composer">
+              {iteratingNodes.length > 0 ? (
+                <div className="product-copilot-attachments">
+                  {iteratingNodes.map((node, i) => (
+                    <button 
+                      key={node.id} 
+                      className={`product-copilot-pill${i === currentIteratingIndex ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setCurrentIteratingIndex(i);
+                        forceGraphRef.current?.focusNode(node.id);
+                      }}
+                    >
+                      <span className="product-copilot-pill__cat">{node.category.slice(0, 2)}</span>
+                      <span className="product-copilot-pill__label">{node.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
               <PromptComposer
                 className="product-prompt-card"
                 promptPrefix=""
@@ -937,6 +992,41 @@ function ProductPage() {
                 onChange={setPromptValue}
                 onSend={handleSend}
                 ariaLabel="Ask a legal question or request"
+                secondaryButton={
+                  <button
+                    type="button"
+                    className={`prompt-icon-button${isHighlightingPoints ? " is-active" : ""}`}
+                    disabled={isHighlightingPoints}
+                    onClick={async () => {
+                      if (forceGraphRef.current) {
+                        setIsHighlightingPoints(true);
+                        setIteratingNodes([]);
+                        setCurrentIteratingIndex(-1);
+                        setDiscoveryProgress(0);
+                        try {
+                          const nodes = await forceGraphRef.current.highlightPointsGradually(15, (p) => setDiscoveryProgress(p));
+                          setIteratingNodes(nodes);
+                          setGraphStats(forceGraphRef.current.getGraphStats());
+                          if (nodes.length > 0) {
+                            setCurrentIteratingIndex(-1);
+                            forceGraphRef.current.focusOverview();
+                          }
+                        } finally {
+                          setIsHighlightingPoints(false);
+                        }
+                      }
+                    }}
+                    title="Highlight random points"
+                  >
+                    {isHighlightingPoints ? (
+                      <div className="product-discovery-counter">
+                        {discoveryProgress}
+                      </div>
+                    ) : (
+                      <ProductToolbarIcon kind="spark" />
+                    )}
+                  </button>
+                }
                 toolbarExtra={
                   <label className="prompt-toggle" title="Hide alineat nodes">
                     <input
@@ -963,6 +1053,132 @@ function ProductPage() {
               highlightedNodeIds={queryGraph?.highlighted_node_ids}
               highlightedEdgeIds={queryGraph?.highlighted_edge_ids}
             />
+
+            {iteratingNodes.length > 0 ? (
+              <>
+                {/* Iteration Widget */}
+                <div className="product-iteration-widget">
+                  <button
+                    type="button"
+                    className="product-iteration-btn"
+                    onClick={() => {
+                      const next = currentIteratingIndex === -1 ? iteratingNodes.length - 1 : currentIteratingIndex - 1;
+                      setCurrentIteratingIndex(next);
+                      if (next === -1) {
+                        forceGraphRef.current?.focusOverview();
+                      } else {
+                        forceGraphRef.current?.focusNode(iteratingNodes[next].id);
+                      }
+                    }}
+                  >
+                    <ProductToolbarIcon kind="chevron" />
+                  </button>
+                  <div className="product-iteration-indicator">
+                    {currentIteratingIndex === -1 ? (
+                      <strong>Top</strong>
+                    ) : (
+                      <>
+                        <strong>{currentIteratingIndex + 1}</strong>
+                        <span>/</span>
+                        <span>{iteratingNodes.length}</span>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="product-iteration-btn product-iteration-btn--next"
+                    onClick={() => {
+                      const next = currentIteratingIndex === iteratingNodes.length - 1 ? -1 : currentIteratingIndex + 1;
+                      setCurrentIteratingIndex(next);
+                      if (next === -1) {
+                        forceGraphRef.current?.focusOverview();
+                      } else {
+                        forceGraphRef.current?.focusNode(iteratingNodes[next].id);
+                      }
+                    }}
+                  >
+                    <ProductToolbarIcon kind="chevron" />
+                  </button>
+                </div>
+
+                {/* Info Banner */}
+                <article className="product-iteration-banner">
+                  {currentIteratingIndex === -1 ? (
+                    <>
+                      <div className="product-iteration-banner__header">
+                        <span className="product-iteration-banner__badge">§</span>
+                        <strong className="product-iteration-banner__title">Overview</strong>
+                      </div>
+                      <p className="product-iteration-banner__path">Knowledge Graph Map</p>
+                      <div className="product-iteration-banner__content">
+                        Showing all {iteratingNodes.length} matched articles across the legal framework. Use the arrows or pills to inspect individual connections.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="product-iteration-banner__header">
+                        <span className="product-iteration-banner__badge">
+                          {iteratingNodes[currentIteratingIndex].category.slice(0, 2).toUpperCase()}
+                        </span>
+                        <strong className="product-iteration-banner__title">
+                          {iteratingNodes[currentIteratingIndex].label}
+                        </strong>
+                      </div>
+                      <p className="product-iteration-banner__path">
+                        {iteratingNodes[currentIteratingIndex].fullLabel}
+                      </p>
+                      <div className="product-iteration-banner__content">
+                        {iteratingNodes[currentIteratingIndex].text}
+                      </div>
+                    </>
+                  )}
+                  
+                  <div className="product-iteration-banner__stats">
+                    <div className="product-iteration-stat">
+                      <dt>Connected</dt>
+                      <dd>{graphStats.totalLinks} edges</dd>
+                    </div>
+                    <div className="product-iteration-stat">
+                      <dt>Articles</dt>
+                      <dd>{graphStats.articles}</dd>
+                    </div>
+                    <div className="product-iteration-stat">
+                      <dt>Total Nodes</dt>
+                      <dd>{graphStats.totalNodes}</dd>
+                    </div>
+                  </div>
+
+                  <div className="product-iteration-banner__footer">
+                    <span>
+                      {currentIteratingIndex === -1 
+                        ? `Found ${iteratingNodes.length}/${graphStats.articles} relevant articles`
+                        : `Matched ${currentIteratingIndex + 1}/${iteratingNodes.length} articles`
+                      }
+                    </span>
+                    <div className="product-iteration-banner__progress-bar">
+                      <div 
+                        className="product-iteration-banner__progress-fill" 
+                        style={{ 
+                          width: currentIteratingIndex === -1 
+                            ? '100%' 
+                            : `${((currentIteratingIndex + 1) / iteratingNodes.length) * 100}%` 
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    className="product-iteration-banner__close"
+                    onClick={() => {
+                      setIteratingNodes([]);
+                      setCurrentIteratingIndex(-1);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </article>
+              </>
+            ) : null}
           </div>
         ) : null}
 
